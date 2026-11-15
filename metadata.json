@@ -1,0 +1,7 @@
+{
+  "name": "QuizCraft - ระบบสร้างแบบทดสอบและสรุปบทเรียน",
+  "description": "ระบบสร้างแบบทดสอบจำลอง แฟลชการ์ด และสรุปบทเรียนจากเนื้อหาการเรียนอย่างกระชับตรงประเด็น",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
