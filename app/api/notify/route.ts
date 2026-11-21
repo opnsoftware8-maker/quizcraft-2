@@ -4,7 +4,13 @@ import { NextRequest, NextResponse } from "next/server";
 interface NotificationRecord {
   id: string;
   timestamp: string;
-  eventType: "visit" | "name_registered" | "exam_started" | "test";
+  eventType:
+    | "visit"
+    | "name_registered"
+    | "summary_started"
+    | "exam_started"
+    | "feedback"
+    | "test";
   userName: string;
   visitorId: string;
   device: string;
@@ -70,6 +76,16 @@ function formatThaiTime(date: Date = new Date()): string {
     minute: "2-digit",
     second: "2-digit",
   }).format(date);
+}
+
+// Escape HTML special characters before interpolating user-provided text into email HTML
+function escapeHtml(text: string): string {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 // Send email using Resend HTTP API (No heavy SDK required, 100% compatible with Vercel Edge/Serverless)
@@ -144,8 +160,18 @@ export async function POST(req: NextRequest) {
       visitorId = "",
       referrer = "",
       actionDetails = "เปิดเข้าชมหน้าแรก",
+      feedbackMessage = "",
       isTest = false,
     } = body;
+
+    if (eventType === "feedback") {
+      if (typeof feedbackMessage !== "string" || !feedbackMessage.trim()) {
+        return NextResponse.json(
+          { error: "กรุณาระบุข้อความคำแนะนำก่อนส่ง" },
+          { status: 400 }
+        );
+      }
+    }
 
     const userAgent = req.headers.get("user-agent") || "";
     const detectedDevice = detectDevice(userAgent);
@@ -153,14 +179,24 @@ export async function POST(req: NextRequest) {
     const now = new Date();
     const thaiFormattedTime = formatThaiTime(now);
 
-    // Rate-limiting check (Avoid spamming email on rapid refreshes)
-    // Same visitor will not trigger an email notification more than once every 3 minutes, unless isTest is true
+    // Rate-limiting check:
+    // - Never throttle test or user feedback submissions
+    // - Short 10s duplicate-click guard for summary_started / exam_started
+    // - 3-minute cooldown for page visits
     const lastNotifiedMap = getLastNotifiedMap();
     const nowMs = Date.now();
-    const cooldownPeriodMs = 3 * 60 * 1000; // 3 minutes
+    const cooldownPeriodMs =
+      eventType === "summary_started" || eventType === "exam_started"
+        ? 10 * 1000
+        : 3 * 60 * 1000;
     const throttleKey = `${visitorId || "anon"}_${eventType}`;
 
-    if (!isTest && lastNotifiedMap[throttleKey] && (nowMs - lastNotifiedMap[throttleKey] < cooldownPeriodMs)) {
+    if (
+      !isTest &&
+      eventType !== "feedback" &&
+      lastNotifiedMap[throttleKey] &&
+      nowMs - lastNotifiedMap[throttleKey] < cooldownPeriodMs
+    ) {
       return NextResponse.json({
         success: true,
         throttled: true,
@@ -171,47 +207,88 @@ export async function POST(req: NextRequest) {
     lastNotifiedMap[throttleKey] = nowMs;
 
     // Determine user display label
-    let displayName = userName.trim();
+    let displayName = typeof userName === "string" ? userName.trim() : "";
     if (!displayName) {
-      const shortId = (visitorId || "").slice(-5).toUpperCase();
+      const shortId = String(visitorId || "").slice(-5).toUpperCase();
       displayName = `ผู้เข้าชมเครื่อง [${detectedDevice}] ${shortId ? `#${shortId}` : ""}`.trim();
     }
     const targetEmail = process.env.NOTIFICATION_EMAIL || "numheng543@gmail.com";
     const resendApiKey = process.env.RESEND_API_KEY || "";
     const webhookUrl = process.env.NOTIFICATION_WEBHOOK_URL || "";
 
-    // Email Subject
+    const safeDisplayName = escapeHtml(displayName);
+    const safeActionDetails = escapeHtml(String(actionDetails || ""));
+    const safeDevice = escapeHtml(detectedDevice);
+    const safeSource = escapeHtml(detectedSource);
+    const safeVisitorId = escapeHtml(String(visitorId || "ไม่ระบุ"));
+    const trimmedFeedback = typeof feedbackMessage === "string" ? feedbackMessage.trim().slice(0, 4000) : "";
+    const safeFeedbackHtml = escapeHtml(trimmedFeedback).replace(/\n/g, "<br />");
+
+    // Email Subject & Header Messaging
     let subject = `🔔 มีคนกดเข้าเว็บ QuizCraft: ${displayName} (ผ่าน ${detectedSource})`;
-    if (eventType === "exam_started") {
-      subject = `📝 ผู้ใช้ [${detectedDevice}] เริ่มทำข้อสอบ (${actionDetails})`;
+    let headerTitle = "QuizCraft • มีคนกดเข้าใช้งานเว็บไซต์";
+    let statusBadgeTitle = "สถานะผู้เข้าชม";
+    let statusHeadline = safeDisplayName;
+
+    if (eventType === "summary_started") {
+      subject = `📘 แจ้งเตือน QuizCraft: มีผู้ใช้ได้ใช้งานระบบการสรุปเนื้อหาแล้ว`;
+      headerTitle = "QuizCraft • มีผู้ใช้ได้ใช้งานระบบการสรุปเนื้อหาแล้ว";
+      statusBadgeTitle = "การใช้งานระบบสรุปเนื้อหา";
+      statusHeadline = "มีผู้ใช้ได้ใช้งานระบบการสรุปเนื้อหาแล้ว";
+    } else if (eventType === "exam_started") {
+      subject = `📝 แจ้งเตือน QuizCraft: มีผู้ใช้ได้ใช้งานระบบข้อสอบแล้ว`;
+      headerTitle = "QuizCraft • มีผู้ใช้ได้ใช้งานระบบข้อสอบแล้ว";
+      statusBadgeTitle = "การใช้งานระบบข้อสอบ";
+      statusHeadline = "มีผู้ใช้ได้ใช้งานระบบข้อสอบแล้ว";
+    } else if (eventType === "feedback") {
+      subject = `💬 คำแนะนำใหม่จากผู้ใช้ QuizCraft (${displayName})`;
+      headerTitle = "QuizCraft • ได้รับคำแนะนำ / ฟีดแบคใหม่จากผู้ใช้";
+      statusBadgeTitle = "คำแนะนำจากผู้ใช้งาน";
+      statusHeadline = safeDisplayName;
     } else if (isTest) {
       subject = `🧪 [ทดสอบระบบ] การแจ้งเตือนอีเมล QuizCraft ใช้งานได้สมบูรณ์!`;
     }
+
+    const feedbackBlockHtml =
+      eventType === "feedback"
+        ? `
+          <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #0f172a; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+            <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; margin-bottom: 8px;">
+              ข้อความคำแนะนำ / ฟีดแบค
+            </div>
+            <div style="font-size: 15px; line-height: 1.6; color: #0f172a; white-space: normal;">
+              ${safeFeedbackHtml}
+            </div>
+          </div>
+        `
+        : "";
 
     // Modern, highly readable HTML email template with clear hierarchy
     const htmlEmail = `
       <div style="font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; color: #1e293b;">
         <div style="background-color: #0f172a; padding: 24px; text-align: left; border-bottom: 3px solid #0284c7;">
           <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.5px;">
-            QuizCraft • มีคนกดเข้าใช้งานเว็บไซต์
+            ${headerTitle}
           </h1>
           <p style="color: #94a3b8; margin: 6px 0 0 0; font-size: 13px;">
-            ระบบตรวจจับผู้เข้าชมอัตโนมัติแบบเรียลไทม์ (ไม่ต้องกรอกข้อมูล)
+            ระบบแจ้งเตือนอัตโนมัติจาก QuizCraft Studio
           </p>
         </div>
 
         <div style="padding: 24px;">
           <div style="background-color: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
             <div style="font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #0284c7; margin-bottom: 4px;">
-              สถานะผู้เข้าชม
+              ${statusBadgeTitle}
             </div>
             <div style="font-size: 18px; font-weight: 700; color: #0f172a;">
-              ${displayName}
+              ${statusHeadline}
             </div>
             <div style="font-size: 13px; color: #0369a1; margin-top: 4px;">
-              กิจกรรม: <strong>${actionDetails}</strong>
+              รายละเอียด: <strong>${safeActionDetails}</strong>
             </div>
           </div>
+
+          ${feedbackBlockHtml}
 
           <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 24px;">
             <tr>
@@ -219,16 +296,20 @@ export async function POST(req: NextRequest) {
               <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #0f172a;">${thaiFormattedTime}</td>
             </tr>
             <tr>
+              <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b;">👤 ผู้ใช้งาน:</td>
+              <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #0f172a;">${safeDisplayName}</td>
+            </tr>
+            <tr>
               <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b;">📱 ชนิดอุปกรณ์:</td>
-              <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #0f172a;">${detectedDevice}</td>
+              <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #0f172a;">${safeDevice}</td>
             </tr>
             <tr>
               <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b;">🌐 แหล่งที่มา (Traffic):</td>
-              <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #0284c7;">${detectedSource}</td>
+              <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-weight: 600; color: #0284c7;">${safeSource}</td>
             </tr>
             <tr>
               <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b;">🆔 Visitor Machine ID:</td>
-              <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-family: monospace; font-size: 12px; color: #475569;">${visitorId || "ไม่ระบุ"}</td>
+              <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-family: monospace; font-size: 12px; color: #475569;">${safeVisitorId}</td>
             </tr>
           </table>
 
@@ -240,7 +321,7 @@ export async function POST(req: NextRequest) {
         </div>
 
         <div style="background-color: #f8fafc; padding: 16px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; text-align: center;">
-          การแจ้งเตือนนี้ส่งอัตโนมัติจากระบบ QuizCraft บน Vercel ไปยัง ${targetEmail}
+          การแจ้งเตือนนี้ส่งอัตโนมัติจากระบบ QuizCraft ไปยัง ${escapeHtml(targetEmail)}
         </div>
       </div>
     `;
@@ -263,7 +344,10 @@ export async function POST(req: NextRequest) {
 
     // If webhook is provided, also send push message
     if (webhookUrl) {
-      const webhookMsg = `🔔 **QuizCraft Alert:** ${displayName} กำลังเข้าใช้งาน (${actionDetails}) ผ่าน ${detectedDevice} จาก ${detectedSource} เวลา ${thaiFormattedTime}`;
+      const webhookMsg =
+        eventType === "feedback"
+          ? `💬 **QuizCraft Feedback** จาก ${displayName}: "${trimmedFeedback}" (${thaiFormattedTime})`
+          : `🔔 **QuizCraft Alert:** ${displayName} — ${actionDetails} (${detectedDevice} / ${detectedSource}) เวลา ${thaiFormattedTime}`;
       sendWebhookNotification(webhookUrl, webhookMsg);
     }
 
@@ -277,7 +361,8 @@ export async function POST(req: NextRequest) {
       visitorId,
       device: detectedDevice,
       source: detectedSource,
-      actionDetails,
+      actionDetails:
+        eventType === "feedback" ? `ฟีดแบค: ${trimmedFeedback}` : actionDetails,
       emailSent,
       emailDestination: targetEmail,
       deliveryStatus,
@@ -291,6 +376,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      emailSent,
       record: newRecord,
       deliveryStatus,
       targetEmail,

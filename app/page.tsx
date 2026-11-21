@@ -11,6 +11,7 @@ import { SubjectiveExamView } from "@/components/SubjectiveExamView";
 import { SummaryReadingView } from "@/components/SummaryReadingView";
 import { HistoryModal } from "@/components/HistoryModal";
 import { ApiKeyModal } from "@/components/ApiKeyModal";
+import { FeedbackModal } from "@/components/FeedbackModal";
 import { AnalyticsView } from "@/components/AnalyticsView";
 import { HeroBannerCarousel } from "@/components/HeroBannerCarousel";
 import { HomeworkSolverSection } from "@/components/HomeworkSolverSection";
@@ -23,7 +24,13 @@ import {
 } from "@/types/exam";
 import { Loader2, AlertCircle, Key, BookOpen, HelpCircle, Sparkles } from "lucide-react";
 import { getStoredCustomApiKey, getCustomApiHeaders } from "@/lib/custom-key";
-import { trackPageView, trackFeatureAction, sendHeartbeat } from "@/lib/analytics";
+import {
+  trackPageView,
+  trackFeatureAction,
+  sendHeartbeat,
+  notifySummaryStarted,
+  notifyExamStarted,
+} from "@/lib/analytics";
 import { useLanguage } from "@/lib/language-context";
 
 type FlowStep =
@@ -83,6 +90,7 @@ export default function HomePage() {
   // Custom Gemini API Key State
   const [customApiKey, setCustomApiKey] = useState<string | null>(null);
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState<boolean>(false);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState<boolean>(false);
 
   // Load from LocalStorage once on client mount (prevents SSR hydration mismatch)
   useEffect(() => {
@@ -173,6 +181,8 @@ export default function HomePage() {
     setIsSummarizing(true);
     setApiError(null);
 
+    notifySummaryStarted("มีผู้ใช้ได้ใช้งานระบบการสรุปเนื้อหาแล้ว");
+
     const promptToSend = summaryCustomPrompt !== undefined ? summaryCustomPrompt : "";
 
     try {
@@ -220,6 +230,8 @@ export default function HomePage() {
     setNotesText(solutionText);
     setIsSummarizing(true);
     setApiError(null);
+
+    notifySummaryStarted("มีผู้ใช้ได้ใช้งานระบบการสรุปเนื้อหาแล้ว (จากเฉลยโจทย์ปัญหา)");
 
     try {
       const res = await fetch("/api/summarize-notes", {
@@ -280,6 +292,8 @@ export default function HomePage() {
   }) => {
     setIsLoading(true);
     setApiError(null);
+
+    notifyExamStarted(`มีผู้ใช้ได้ใช้งานระบบข้อสอบแล้ว (ปรนัย ${opts.questionCount} ข้อ)`);
 
     const promptToSend = opts.customPrompt !== undefined ? opts.customPrompt : customPrompt;
 
@@ -446,6 +460,8 @@ export default function HomePage() {
     setIsLoading(true);
     setApiError(null);
 
+    notifyExamStarted(`มีผู้ใช้ได้ใช้งานระบบข้อสอบแล้ว (อัตนัย ${count} ข้อ)`);
+
     const promptToSend = promptOverride !== undefined ? promptOverride : customPrompt;
 
     try {
@@ -550,6 +566,7 @@ export default function HomePage() {
           setPreviousStep(currentStep);
           setCurrentStep("analytics");
         }}
+        onOpenFeedback={() => setIsFeedbackOpen(true)}
         onReset={handleReset}
         hasActiveSession={hasActiveSession}
         historyCount={historyRecords.length}
@@ -814,6 +831,12 @@ export default function HomePage() {
         isOpen={isApiKeyModalOpen}
         onClose={() => setIsApiKeyModalOpen(false)}
         onKeyChange={(key) => setCustomApiKey(key)}
+      />
+
+      {/* Feedback Modal */}
+      <FeedbackModal
+        isOpen={isFeedbackOpen}
+        onClose={() => setIsFeedbackOpen(false)}
       />
 
       {/* Footer */}

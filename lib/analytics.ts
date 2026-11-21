@@ -375,6 +375,85 @@ export async function notifyUserAction(actionDetails: string, customName?: strin
   }
 }
 
+export async function notifySummaryStarted(actionDetails?: string): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const visitorId = getOrCreateVisitorId();
+    const userName = getStoredUserName();
+    const referrer = document.referrer || "";
+
+    await fetch("/api/notify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        eventType: "summary_started",
+        userName,
+        visitorId,
+        referrer,
+        actionDetails: actionDetails || "มีผู้ใช้ได้ใช้งานระบบการสรุปเนื้อหาแล้ว",
+      }),
+    });
+  } catch {
+    // Silent background notification
+  }
+}
+
+export async function notifyExamStarted(actionDetails?: string): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const visitorId = getOrCreateVisitorId();
+    const userName = getStoredUserName();
+    const referrer = document.referrer || "";
+
+    await fetch("/api/notify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        eventType: "exam_started",
+        userName,
+        visitorId,
+        referrer,
+        actionDetails: actionDetails || "มีผู้ใช้ได้ใช้งานระบบข้อสอบแล้ว",
+      }),
+    });
+  } catch {
+    // Silent background notification
+  }
+}
+
+export async function sendUserFeedback(feedbackMessage: string): Promise<{
+  success: boolean;
+  emailSent?: boolean;
+  error?: string;
+}> {
+  if (typeof window === "undefined") {
+    return { success: false, error: "Client only" };
+  }
+
+  const visitorId = getOrCreateVisitorId();
+  const userName = getStoredUserName();
+  const referrer = document.referrer || "";
+
+  const res = await fetch("/api/notify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      eventType: "feedback",
+      userName,
+      visitorId,
+      referrer,
+      actionDetails: "ส่งคำแนะนำ / ฟีดแบคจากผู้ใช้",
+      feedbackMessage: feedbackMessage.trim(),
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || "Failed to send feedback");
+  }
+  return data;
+}
+
 export async function sendTestNotification(): Promise<any> {
   if (typeof window === "undefined") return null;
   try {

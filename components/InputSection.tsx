@@ -14,7 +14,6 @@ import {
   X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { notifyUserAction } from "@/lib/analytics";
 import { useLanguage } from "@/lib/language-context";
 
 interface InputSectionProps {
@@ -60,8 +59,6 @@ export function InputSection({
   }, [isSummaryModalOpen]);
 
   const handleContinueWithNotify = () => {
-    const topicSummary = notesText.trim().substring(0, 40);
-    notifyUserAction(`เลือกสร้างแบบทดสอบจากเนื้อหา: "${topicSummary}..."`).catch(() => {});
     onContinue();
   };
 
@@ -71,8 +68,6 @@ export function InputSection({
 
   const handleConfirmSummarize = () => {
     const trimmedPrompt = summaryPrompt.trim();
-    const topicSummary = notesText.trim().substring(0, 40);
-    notifyUserAction(`กดสรุปบทเรียนจากเนื้อหา: "${topicSummary}..."`).catch(() => {});
     setIsSummaryModalOpen(false);
     onSummarize(trimmedPrompt);
   };

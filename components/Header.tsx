@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Layers,
   Globe,
+  MessageSquare,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -25,6 +26,7 @@ interface HeaderProps {
   onOpenHistory: () => void;
   onOpenApiKeyModal: () => void;
   onOpenAnalytics: () => void;
+  onOpenFeedback: () => void;
   onReset: () => void;
   hasActiveSession: boolean;
   historyCount: number;
@@ -36,6 +38,7 @@ export function Header({
   onOpenHistory,
   onOpenApiKeyModal,
   onOpenAnalytics,
+  onOpenFeedback,
   onReset,
   hasActiveSession,
   historyCount,
@@ -203,12 +206,12 @@ export function Header({
               </button>
             )}
 
-            {/* Mobile / Tablet Hamburger Toggle */}
+            {/* Top-right Hamburger Menu Toggle */}
             <button
               type="button"
               id="header-hamburger-menu-btn"
               onClick={toggleOpen}
-              className={`md:hidden relative p-2 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${
+              className={`relative p-2 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${
                 isOpen
                   ? "bg-[#0F172A] text-white border-[#0F172A]"
                   : "bg-white text-[#0F172A] hover:bg-[#F8FAFC] border-[#E2E8F0]"
@@ -472,6 +475,34 @@ export function Header({
                         {language === "en"
                           ? "Configure personal Gemini API Key for higher rate limits"
                           : "ใส่ Gemini API Key ส่วนตัวเพื่อการใช้งานที่ต่อเนื่อง"}
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Item 4: Send Feedback */}
+                  <button
+                    type="button"
+                    id="menu-send-feedback-btn"
+                    onClick={() => {
+                      setIsOpen(false);
+                      onOpenFeedback();
+                    }}
+                    className="w-full p-4 rounded-xl border border-[#E2E8F0] hover:border-[#CBD5E1] bg-white hover:bg-[#F8FAFC] text-left transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="w-10 h-10 rounded-lg bg-[#0F172A] text-white flex items-center justify-center shadow-xs">
+                        <MessageSquare className="w-5 h-5" />
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <div className="text-sm font-bold text-[#0F172A] flex items-center justify-between">
+                        <span>{language === "en" ? "Send Feedback" : "ส่งคำแนะนำ"}</span>
+                        <ChevronRight className="w-4 h-4 text-[#94A3B8] group-hover:translate-x-0.5 transition-transform" />
+                      </div>
+                      <p className="text-xs text-[#64748B] mt-1">
+                        {language === "en"
+                          ? "Share suggestions, report bugs, or send a message to the team"
+                          : "ส่งข้อเสนอแนะ ติชม หรือแจ้งปัญหาการใช้งานถึงผู้พัฒนาโดยตรง"}
                       </p>
                     </div>
                   </button>
