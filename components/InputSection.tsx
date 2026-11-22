@@ -1,18 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useEffect } from "react";
-import {
-  FileText,
-  Upload,
-  Sparkles,
-  BookOpen,
-  Trash2,
-  CheckCircle2,
-  AlertCircle,
-  FileCheck,
-  ArrowRight,
-  X,
-} from "lucide-react";
+import { Upload, BookOpen, ArrowRight, X, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useLanguage } from "@/lib/language-context";
 
@@ -58,14 +47,6 @@ export function InputSection({
     };
   }, [isSummaryModalOpen]);
 
-  const handleContinueWithNotify = () => {
-    onContinue();
-  };
-
-  const handleOpenSummaryModal = () => {
-    setIsSummaryModalOpen(true);
-  };
-
   const handleConfirmSummarize = () => {
     const trimmedPrompt = summaryPrompt.trim();
     setIsSummaryModalOpen(false);
@@ -91,7 +72,7 @@ export function InputSection({
         setNotesText(content);
         setUploadStatus(
           language === "en"
-            ? `File "${file.name}" uploaded successfully (${content.length} chars)`
+            ? `Loaded "${file.name}" (${content.length} chars)`
             : `อัปโหลดไฟล์ "${file.name}" สำเร็จ (${content.length} ตัวอักษร)`
         );
         setTimeout(() => setUploadStatus(null), 4000);
@@ -100,8 +81,8 @@ export function InputSection({
     reader.onerror = () => {
       setUploadStatus(
         language === "en"
-          ? "Failed to read file. Please provide a valid .txt or .md file."
-          : "ไม่สามารถอ่านไฟล์ได้ กรุณาลองใช้ไฟล์ .txt หรือ .md"
+          ? "Failed to read file. Please use a .txt or .md file."
+          : "ไม่สามารถอ่านไฟล์ได้ กรุณาใช้ไฟล์ .txt หรือ .md"
       );
     };
     reader.readAsText(file);
@@ -127,82 +108,63 @@ export function InputSection({
   };
 
   return (
-    <div className="space-y-6 lg:space-y-8">
-      {/* Section Headline & Instructions (Minimalist Studio Header) */}
-      <div className="text-center max-w-3xl mx-auto pt-2 pb-2">
-        <span className="text-xs font-semibold text-slate-500 uppercase tracking-widest block mb-1.5">
-          {language === "en" ? "Exam & Flashcards Generator" : "ระบบสร้างข้อสอบ & แฟลชการ์ด"}
-        </span>
-        <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-slate-900 tracking-tight">
-          {language === "en" ? "Test Knowledge & Review Lessons" : "ทดสอบความรู้ และทบทวนบทเรียน"}
+    <div className="max-w-3xl mx-auto space-y-5">
+      {/* Minimal Header */}
+      <div className="space-y-1">
+        <h2 className="text-xl sm:text-2xl font-semibold text-[#1F1E1D] tracking-tight">
+          {language === "en" ? "Study Content" : "วางเนื้อหาบทเรียน"}
         </h2>
-        <p className="mt-2 text-xs sm:text-sm lg:text-base text-slate-600 max-w-2xl mx-auto leading-relaxed">
+        <p className="text-xs sm:text-sm text-[#6B6A65]">
           {language === "en"
-            ? "Import summaries, lecture notes, or textbooks to generate multiple-choice exams, flashcards, and analytical essays with step-by-step solutions."
-            : "นำเข้าข้อความสรุป เลกเชอร์ หรือเนื้อหาบทเรียน เพื่อสร้างแบบทดสอบปรนัย แฟลชการ์ด และข้อสอบข้อเขียนพร้อมเฉลยละเอียด"}
+            ? "Paste your notes or upload a text file to summarize or generate a quiz."
+            : "วางเนื้อหาหรืออัปโหลดไฟล์ข้อความ เพื่อเลือกสรุปเนื้อหาหรือสร้างแบบทดสอบ"}
         </p>
       </div>
 
-      {/* Main Text Input Area */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6 sm:p-8 lg:p-10 space-y-5">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center space-x-2.5">
-            <FileText className="w-5 h-5 text-slate-700" />
-            <label
-              htmlFor="notes-textarea"
-              className="text-sm sm:text-base font-bold text-slate-900"
+      {/* Main Content Box */}
+      <div className="bg-white rounded-2xl border border-[#E5E3DC] p-4 sm:p-6 space-y-4">
+        <div className="flex items-center justify-between gap-2 text-xs text-[#6B6A65]">
+          <span>
+            {wordCount.toLocaleString()} {language === "en" ? "words" : "คำ"} ·{" "}
+            {charCount.toLocaleString()} {language === "en" ? "chars" : "ตัวอักษร"}
+          </span>
+
+          {notesText && (
+            <button
+              type="button"
+              onClick={() => setNotesText("")}
+              className="inline-flex items-center gap-1 text-[#6B6A65] hover:text-[#1F1E1D] transition-colors cursor-pointer"
             >
-              {language === "en" ? "Lesson Content / Study Notes" : "เนื้อหาบทเรียน / ข้อความสรุป"}
-            </label>
-          </div>
-          <div className="flex items-center space-x-3 text-xs sm:text-sm text-slate-500">
-            <span>{wordCount.toLocaleString()} {language === "en" ? "words" : "คำ"}</span>
-            <span aria-hidden="true">·</span>
-            <span>{charCount.toLocaleString()} {language === "en" ? "characters" : "ตัวอักษร"}</span>
-            {notesText && (
-              <button
-                onClick={() => {
-                  setNotesText("");
-                }}
-                className="text-rose-600 hover:text-rose-700 font-medium inline-flex items-center transition-colors cursor-pointer ml-2"
-                title={language === "en" ? "Clear notes" : "ล้างข้อความ"}
-              >
-                <Trash2 className="w-3.5 h-3.5 mr-1" />
-                {language === "en" ? "Clear" : "ล้างเนื้อหา"}
-              </button>
-            )}
-          </div>
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{language === "en" ? "Clear" : "ล้างเนื้อหา"}</span>
+            </button>
+          )}
         </div>
 
-        {/* Text Area (Spacious for Desktop & Tablet) */}
-        <div className="relative">
-          <textarea
-            id="notes-textarea"
-            rows={12}
-            value={notesText}
-            onChange={(e) => {
-              setNotesText(e.target.value);
-            }}
-            placeholder={
-              language === "en"
-                ? "Paste study notes, lecture summaries, or textbook excerpts here... (e.g. Photosynthesis mechanisms, Newtonian physics, or Macroeconomics supply & demand)"
-                : "วางข้อความสรุป เลกเชอร์ หรือชีทบทเรียนที่นี่... (เช่น สรุปการสังเคราะห์ด้วยแสง, ฟิสิกส์กลศาสตร์, หรือเศรษฐศาสตร์)"
-            }
-            className="w-full p-4 sm:p-5 text-sm sm:text-base text-slate-900 bg-slate-50/50 focus:bg-white rounded-xl border border-slate-200 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 outline-hidden transition-all resize-y leading-relaxed min-h-[260px] lg:min-h-[320px]"
-          />
-        </div>
+        <textarea
+          id="notes-textarea"
+          rows={10}
+          value={notesText}
+          onChange={(e) => setNotesText(e.target.value)}
+          placeholder={
+            language === "en"
+              ? "Paste study notes, lecture summaries, or lesson text here (minimum 20 characters)..."
+              : "วางเนื้อหาบทเรียน เลกเชอร์ หรือสรุปที่ต้องการเรียนรู้ที่นี่ (อย่างน้อย 20 ตัวอักษร)..."
+          }
+          className="w-full p-3.5 sm:p-4 text-[16px] text-[#1F1E1D] bg-[#FAF9F5] focus:bg-white rounded-xl border border-[#E5E3DC] focus:border-[#1F1E1D] outline-hidden transition-colors resize-y leading-relaxed min-h-[220px] sm:min-h-[260px] placeholder:text-[#8C8A84]"
+        />
 
-        {/* File Drag and Drop / Upload Helper */}
+        {/* Compact File Upload Strip */}
         <div
           onDragEnter={handleDrag}
           onDragLeave={handleDrag}
           onDragOver={handleDrag}
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
-          className={`border border-dashed rounded-xl p-4 sm:p-5 text-center cursor-pointer transition-colors ${
+          className={`rounded-xl border border-dashed px-4 py-3 text-center cursor-pointer transition-colors ${
             dragActive
-              ? "border-slate-900 bg-slate-50"
-              : "border-slate-300 hover:border-slate-400 bg-slate-50/40"
+              ? "border-[#1F1E1D] bg-[#EFECE4]"
+              : "border-[#DFDDD6] hover:border-[#B8B5AD] bg-[#FAF9F5]/60"
           }`}
         >
           <input
@@ -212,95 +174,74 @@ export function InputSection({
             className="hidden"
             onChange={handleFileChange}
           />
-          <div className="flex items-center justify-center space-x-2 text-xs sm:text-sm text-slate-600">
-            <Upload className="w-4 h-4 text-slate-700" />
+          <div className="flex items-center justify-center gap-2 text-xs sm:text-sm text-[#6B6A65]">
+            <Upload className="w-4 h-4 text-[#1F1E1D] shrink-0" />
             <span>
-              {language === "en" ? "Drag & drop text file here, or " : "ลากและวางไฟล์ข้อความ หรือ "}
-              <span className="text-slate-900 font-semibold underline">
-                {language === "en" ? "browse file (.txt, .md)" : "คลิกเลือกไฟล์ (.txt, .md)"}
+              {language === "en" ? "Drop file or " : "ลากวางไฟล์หรือ "}
+              <span className="text-[#1F1E1D] font-medium underline underline-offset-2">
+                {language === "en" ? "choose .txt / .md" : "เลือกไฟล์ (.txt, .md)"}
               </span>
             </span>
           </div>
         </div>
 
         {uploadStatus && (
-          <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-xs sm:text-sm text-emerald-800 flex items-center space-x-2">
-            <FileCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{uploadStatus}</span>
-          </div>
+          <p className="text-xs text-[#1F1E1D] bg-[#EFECE4] border border-[#E5E3DC] rounded-xl px-3.5 py-2">
+            {uploadStatus}
+          </p>
         )}
 
-        {/* Validation error prompt */}
         {!isValid && notesText.length > 0 && (
-          <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs sm:text-sm text-rose-800 flex items-center space-x-2">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-            <span>
-              {language === "en"
-                ? "Please enter or paste at least 20 characters to generate an exam."
-                : "กรุณากรอกหรือวางเนื้อหาอย่างน้อย 20 ตัวอักษรเพื่อสร้างแบบทดสอบ"}
-            </span>
-          </div>
+          <p className="text-xs text-[#6B6A65] bg-[#FAF9F5] border border-[#E5E3DC] rounded-xl px-3.5 py-2">
+            {language === "en"
+              ? "Please enter at least 20 characters to continue."
+              : "กรุณาวางเนื้อหาอย่างน้อย 20 ตัวอักษรเพื่อดำเนินการต่อ"}
+          </p>
         )}
 
-        {/* Action Buttons Row */}
-        <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-          <div className="text-xs sm:text-sm text-slate-500 flex items-center">
-            {isValid && (
-              <span className="inline-flex items-center text-emerald-600 font-medium">
-                <CheckCircle2 className="w-4 h-4 mr-1.5" />
-                {language === "en"
-                  ? `Content ready (${charCount.toLocaleString()} characters)`
-                  : `เนื้อหาพร้อมประมวลผล (${charCount.toLocaleString()} ตัวอักษร)`}
-              </span>
-            )}
-          </div>
+        {/* Two Clean Option Buttons: Summarize Content | Create Quiz */}
+        <div className="pt-2 border-t border-[#ECEAE3] grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button
+            id="input-summarize-btn"
+            type="button"
+            disabled={!isValid || isLoading || isSummarizing}
+            onClick={() => setIsSummaryModalOpen(true)}
+            className={`w-full px-5 py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2 transition-colors ${
+              isValid && !isLoading && !isSummarizing
+                ? "bg-[#EFECE4] hover:bg-[#E5E2D9] text-[#1F1E1D] cursor-pointer"
+                : "bg-[#F4F2EC] text-[#A19F99] cursor-not-allowed"
+            }`}
+          >
+            <BookOpen className="w-4 h-4 shrink-0" />
+            <span>
+              {isSummarizing
+                ? language === "en"
+                  ? "Summarizing..."
+                  : "กำลังสรุปเนื้อหา..."
+                : language === "en"
+                ? "Summarize Content"
+                : "สรุปเนื้อหา"}
+            </span>
+          </button>
 
-          <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-            {/* AI Summary Button */}
-            <button
-              id="input-summarize-btn"
-              type="button"
-              disabled={!isValid || isLoading || isSummarizing}
-              onClick={handleOpenSummaryModal}
-              className={`w-full sm:w-auto px-5 py-3 rounded-xl text-xs sm:text-sm font-medium inline-flex items-center justify-center space-x-2 transition-all ${
-                isValid && !isLoading && !isSummarizing
-                  ? "bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 cursor-pointer shadow-2xs"
-                  : "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
-              }`}
-              title={
-                language === "en"
-                  ? "Distill key takeaways into a structured study guide"
-                  : "สรุปเนื้อหาสำคัญ จัดระเบียบหัวข้อให้อ่านเข้าใจง่าย"
-              }
-            >
-              <BookOpen className="w-4 h-4 text-slate-600" />
-              <span>
-                {isSummarizing
-                  ? (language === "en" ? "Summarizing..." : "กำลังสรุปเนื้อหา...")
-                  : (language === "en" ? "Executive Summary" : "สรุปเนื้อหาสำคัญ")}
-              </span>
-            </button>
-
-            {/* Proceed to Modes Button */}
-            <button
-              id="input-continue-btn"
-              type="button"
-              disabled={!isValid || isLoading || isSummarizing}
-              onClick={handleContinueWithNotify}
-              className={`w-full sm:w-auto px-7 py-3 rounded-xl text-xs sm:text-sm font-semibold inline-flex items-center justify-center space-x-2 transition-all shadow-xs ${
-                isValid && !isLoading && !isSummarizing
-                  ? "bg-slate-900 hover:bg-slate-800 text-white cursor-pointer active:scale-[0.99]"
-                  : "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
-              }`}
-            >
-              <span>{language === "en" ? "Choose Exam Mode" : "ดำเนินการเลือกโหมดข้อสอบ"}</span>
-              <ArrowRight className="w-4 h-4 ml-1" />
-            </button>
-          </div>
+          <button
+            id="input-continue-btn"
+            type="button"
+            disabled={!isValid || isLoading || isSummarizing}
+            onClick={onContinue}
+            className={`w-full px-5 py-3 rounded-xl text-sm font-medium inline-flex items-center justify-center gap-2 transition-colors ${
+              isValid && !isLoading && !isSummarizing
+                ? "bg-[#1F1E1D] hover:bg-[#33322F] text-white cursor-pointer"
+                : "bg-[#DFDDD6] text-[#8C8A84] cursor-not-allowed"
+            }`}
+          >
+            <span>{language === "en" ? "Create Quiz" : "ทำแบบทดสอบ"}</span>
+            <ArrowRight className="w-4 h-4 shrink-0" />
+          </button>
         </div>
       </div>
 
-      {/* Custom Summary Prompt Popup Modal */}
+      {/* Minimal Summary Custom Prompt Modal */}
       <AnimatePresence>
         {isSummaryModalOpen && (
           <motion.div
@@ -309,62 +250,50 @@ export function InputSection({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
             onClick={() => setIsSummaryModalOpen(false)}
-            className="fixed inset-0 z-50 bg-[#0F172A]/50 flex items-center justify-center p-4 backdrop-blur-xs"
+            className="fixed inset-0 z-50 bg-[#1F1E1D]/30 backdrop-blur-[1px] flex items-center justify-center p-4"
           >
             <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              initial={{ opacity: 0, scale: 0.97, y: 6 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 8 }}
-              transition={{ duration: 0.18 }}
+              exit={{ opacity: 0, scale: 0.97, y: 6 }}
+              transition={{ duration: 0.16 }}
               onClick={(e) => e.stopPropagation()}
               role="dialog"
               aria-modal="true"
               aria-labelledby="summary-modal-title"
-              className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden"
+              className="bg-[#FAF9F5] rounded-2xl max-w-md w-full shadow-xl border border-[#E5E3DC] overflow-hidden"
             >
-              {/* Modal Header */}
-              <div className="p-5 sm:p-6 border-b border-slate-100 flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-800 flex items-center justify-center">
-                    <BookOpen className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 id="summary-modal-title" className="text-base font-semibold text-slate-900">
-                      {language === "en" ? "Summary Options" : "ตัวเลือกการสรุปเนื้อหา"}
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      {language === "en"
-                        ? "Customize how the notes should be summarized, or leave blank for standard summary."
-                        : "กำหนดรูปแบบการสรุปให้ตรงใจ หรือปล่อยว่างไว้เพื่อสรุปแบบมาตรฐานทันที"}
-                    </p>
-                  </div>
-                </div>
+              <div className="px-5 py-4 border-b border-[#E5E3DC] flex items-center justify-between">
+                <h3 id="summary-modal-title" className="text-base font-semibold text-[#1F1E1D]">
+                  {language === "en" ? "Summary Options" : "กำหนดรูปแบบการสรุป"}
+                </h3>
                 <button
                   type="button"
                   onClick={() => setIsSummaryModalOpen(false)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
+                  className="p-1.5 rounded-lg text-[#6B6A65] hover:text-[#1F1E1D] hover:bg-[#EFECE4] transition-colors cursor-pointer"
                   aria-label={language === "en" ? "Close" : "ปิด"}
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Modal Body */}
-              <div className="p-5 sm:p-6 space-y-3">
+              <div className="p-5 space-y-3">
                 <div className="flex items-center justify-between">
                   <label
                     htmlFor="summary-custom-prompt-input"
-                    className="text-xs sm:text-sm font-semibold text-slate-900"
+                    className="text-xs font-medium text-[#1F1E1D]"
                   >
-                    {language === "en" ? "Custom Summary Prompt (Optional)" : "พรอมต์กำหนดการสรุปเนื้อหา (ไม่บังคับ)"}
+                    {language === "en"
+                      ? "Custom Prompt (Optional)"
+                      : "คำสั่งเพิ่มเติม (ไม่บังคับ)"}
                   </label>
                   {summaryPrompt && (
                     <button
                       type="button"
                       onClick={() => setSummaryPrompt("")}
-                      className="text-xs text-slate-500 hover:text-slate-900 transition-colors cursor-pointer"
+                      className="text-xs text-[#6B6A65] hover:text-[#1F1E1D] cursor-pointer"
                     >
-                      {language === "en" ? "Clear" : "ล้างข้อความ"}
+                      {language === "en" ? "Clear" : "ล้าง"}
                     </button>
                   )}
                 </div>
@@ -383,25 +312,24 @@ export function InputSection({
                   }}
                   placeholder={
                     language === "en"
-                      ? "e.g. Summarize into concise bullet points for quick exam review, highlight key formulas, or explain in simple language..."
-                      : "เช่น สรุปเป็นข้อๆ กระชับอ่านง่ายก่อนสอบ, เน้นสูตรและจุดที่มักออกสอบ, อธิบายด้วยภาษาง่ายๆ..."
+                      ? "e.g. Concise bullet points, highlight formulas, simple language..."
+                      : "เช่น สรุปเป็นข้อๆ กระชับ เน้นสูตรสำคัญ อธิบายแบบเข้าใจง่าย..."
                   }
-                  className="w-full p-3.5 text-sm text-slate-900 bg-slate-50/60 focus:bg-white rounded-xl border border-slate-200 focus:border-slate-400 focus:ring-1 focus:ring-slate-400 outline-hidden transition-all resize-y leading-relaxed"
+                  className="w-full p-3.5 text-[16px] text-[#1F1E1D] bg-white rounded-xl border border-[#DFDDD6] focus:border-[#1F1E1D] outline-hidden transition-colors resize-y leading-relaxed placeholder:text-[#8C8A84]"
                 />
 
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-[#6B6A65]">
                   {language === "en"
-                    ? "Leave this field empty and click Summarize Now to generate the standard summary immediately."
-                    : "หากไม่ได้พิมพ์อะไร สามารถกดปุ่ม \"สรุปเลย\" เพื่อเริ่มสรุปเนื้อหาให้ทันที"}
+                    ? "Leave blank and press Summarize Now for a standard summary."
+                    : "หากไม่ได้พิมพ์อะไร สามารถกดปุ่ม สรุปเลย เพื่อสรุปทันที"}
                 </p>
               </div>
 
-              {/* Modal Footer */}
-              <div className="px-5 sm:px-6 py-4 bg-slate-50/70 border-t border-slate-100 flex items-center justify-end space-x-3">
+              <div className="px-5 py-3.5 border-t border-[#E5E3DC] flex items-center justify-end gap-2.5">
                 <button
                   type="button"
                   onClick={() => setIsSummaryModalOpen(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs sm:text-sm font-medium text-slate-700 transition-colors cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-[#EFECE4] hover:bg-[#E5E2D9] text-sm font-medium text-[#1F1E1D] transition-colors cursor-pointer"
                 >
                   {language === "en" ? "Cancel" : "ยกเลิก"}
                 </button>
@@ -409,10 +337,9 @@ export function InputSection({
                   id="confirm-summarize-btn"
                   type="button"
                   onClick={handleConfirmSummarize}
-                  className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-semibold inline-flex items-center space-x-2 shadow-xs transition-all active:scale-[0.99] cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-[#1F1E1D] hover:bg-[#33322F] text-white text-sm font-medium transition-colors cursor-pointer"
                 >
-                  <Sparkles className="w-4 h-4" />
-                  <span>{language === "en" ? "Summarize Now" : "สรุปเลย"}</span>
+                  {language === "en" ? "Summarize Now" : "สรุปเลย"}
                 </button>
               </div>
             </motion.div>

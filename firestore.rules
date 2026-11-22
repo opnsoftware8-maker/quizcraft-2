@@ -1,0 +1,295 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core primitive helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation blueprint: UserProfile
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'photoURL', 'preferredLanguage', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'photoURL', 'preferredLanguage', 'activePersonaId', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.uid == request.auth.uid
+        && data.email is string
+        && data.email.size() >= 3
+        && data.email.size() <= 320
+        && data.displayName is string
+        && data.displayName.size() <= 120
+        && data.photoURL is string
+        && data.photoURL.size() <= 1000
+        && data.preferredLanguage in ['en', 'th']
+        && (!('activePersonaId' in data) || (data.activePersonaId is string && (data.activePersonaId == '' || isValidId(data.activePersonaId))))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation blueprint: AiPersona
+    function isValidAiPersona(data, userId, personaId) {
+      return data.keys().hasAll(['id', 'userId', 'name', 'description', 'profileIcon', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'name', 'description', 'profileIcon', 'profileImage', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == personaId
+        && isValidId(data.userId)
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 60
+        && data.description is string
+        && data.description.size() >= 1
+        && data.description.size() <= 600
+        && data.profileIcon in ['user', 'graduation-cap', 'book-open', 'glasses', 'compass', 'feather', 'award']
+        && (!('profileImage' in data) || (
+          data.profileImage is string
+          && data.profileImage.size() <= 60000
+          && (data.profileImage == '' || data.profileImage.matches('^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$'))
+        ))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation blueprint: StudyHistoryItem
+    function isValidStudyHistoryItem(data, userId, itemId) {
+      return data.keys().hasAll(['id', 'userId', 'type', 'title', 'subject', 'content', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'type', 'title', 'subject', 'content', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == itemId
+        && isValidId(data.userId)
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && data.type in ['summary', 'quiz']
+        && data.title is string
+        && data.title.size() >= 1
+        && data.title.size() <= 200
+        && data.subject is string
+        && data.subject.size() <= 120
+        && data.content is string
+        && data.content.size() >= 1
+        && data.content.size() <= 50000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation blueprint: ChatSession
+    function isValidChatSession(data, userId, chatId) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'title', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == chatId
+        && isValidId(data.userId)
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && data.title is string
+        && data.title.size() >= 1
+        && data.title.size() <= 160
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation blueprint: ChatMessageDoc
+    function isValidChatMessage(data, userId, chatId, messageId) {
+      return data.keys().hasAll(['id', 'userId', 'chatId', 'role', 'content', 'feedback', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'chatId', 'role', 'content', 'feedback', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == messageId
+        && isValidId(data.userId)
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && isValidId(data.chatId)
+        && data.chatId == chatId
+        && data.role in ['user', 'assistant']
+        && data.content is string
+        && data.content.size() >= 1
+        && data.content.size() <= 50000
+        && data.feedback in ['up', 'down', 'none']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Users collection (owner-private PII; listing all users is strictly forbidden)
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isVerifiedUser()
+        && isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['email', 'displayName', 'photoURL', 'preferredLanguage', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['activePersonaId', 'updatedAt'])
+        );
+
+      allow delete: if false;
+
+      // User Custom AI Teacher Personas
+      match /personas/{personaId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(personaId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+
+        allow create: if isVerifiedUser()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(personaId)
+          && isValidAiPersona(incoming(), userId, personaId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow update: if isVerifiedUser()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(personaId)
+          && isValidAiPersona(incoming(), userId, personaId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'profileIcon', 'profileImage', 'updatedAt']);
+
+        allow delete: if isVerifiedUser()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(personaId);
+      }
+
+      // User Saved Study History (Summaries & Quizzes)
+      match /studyHistory/{itemId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(itemId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+
+        allow create: if isVerifiedUser()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(itemId)
+          && isValidStudyHistoryItem(incoming(), userId, itemId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow update: if false;
+
+        allow delete: if isVerifiedUser()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(itemId);
+      }
+
+      // User Chat Sessions
+      match /chats/{chatId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(chatId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+
+        allow create: if isVerifiedUser()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(chatId)
+          && isValidChatSession(incoming(), userId, chatId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId));
+
+        allow update: if isVerifiedUser()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(chatId)
+          && isValidChatSession(incoming(), userId, chatId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'updatedAt']);
+
+        allow delete: if isVerifiedUser()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(chatId);
+
+        // Chat Messages inside a Chat Session
+        match /messages/{messageId} {
+          allow get: if isOwner(userId) && isValidId(userId) && isValidId(chatId) && isValidId(messageId);
+          allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+
+          allow create: if isVerifiedUser()
+            && isOwner(userId)
+            && isValidId(userId)
+            && isValidId(chatId)
+            && isValidId(messageId)
+            && isValidChatMessage(incoming(), userId, chatId, messageId)
+            && incoming().createdAt == request.time
+            && incoming().updatedAt == request.time
+            && (
+              exists(/databases/$(database)/documents/users/$(userId)/chats/$(chatId)) ||
+              existsAfter(/databases/$(database)/documents/users/$(userId)/chats/$(chatId))
+            );
+
+          allow update: if isVerifiedUser()
+            && isOwner(userId)
+            && isValidId(userId)
+            && isValidId(chatId)
+            && isValidId(messageId)
+            && isValidChatMessage(incoming(), userId, chatId, messageId)
+            && incoming().id == existing().id
+            && incoming().userId == existing().userId
+            && incoming().chatId == existing().chatId
+            && incoming().role == existing().role
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+            && (
+              incoming().diff(existing()).affectedKeys().hasOnly(['feedback', 'updatedAt']) ||
+              (
+                existing().role == 'assistant' &&
+                incoming().diff(existing()).affectedKeys().hasOnly(['content', 'feedback', 'updatedAt'])
+              )
+            );
+
+          allow delete: if isVerifiedUser()
+            && isOwner(userId)
+            && isValidId(userId)
+            && isValidId(chatId)
+            && isValidId(messageId);
+        }
+      }
+    }
+  }
+}

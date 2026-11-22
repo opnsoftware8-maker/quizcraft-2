@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { ExamQuestion } from "@/types/exam";
 import { useLanguage } from "@/lib/language-context";
+import { SaveToHistoryButton } from "@/components/SaveToHistoryButton";
 
 interface MockExamViewProps {
   examTitle: string;
@@ -24,6 +25,8 @@ interface MockExamViewProps {
   initialMinutes: number;
   onSubmitExam: (userAnswers: Record<number, number>, timeSpentSeconds: number) => void;
   onExit: () => void;
+  onSaveToHistory?: () => Promise<void>;
+  isSavedToHistory?: boolean;
 }
 
 export function MockExamView({
@@ -33,6 +36,8 @@ export function MockExamView({
   initialMinutes,
   onSubmitExam,
   onExit,
+  onSaveToHistory,
+  isSavedToHistory = false,
 }: MockExamViewProps) {
   const { language } = useLanguage();
   const [currentIndex, setCurrentIndex] = useState<number>(0);
@@ -109,36 +114,43 @@ export function MockExamView({
   const choiceLetters = ["A", "B", "C", "D"];
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-5xl mx-auto space-y-5 pb-10">
       {/* Top Exam Header & Timer Bar */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl border border-[#E5E3DC] p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center space-x-2 text-xs text-slate-500">
-            <span className="font-semibold text-slate-800 uppercase tracking-wider">
+          <div className="flex items-center space-x-2 text-xs text-[#6B6A65]">
+            <span className="font-semibold text-[#1F1E1D] uppercase tracking-wider">
               {subject}
             </span>
             <span aria-hidden="true">·</span>
             <span>
               {language === "en"
                 ? `Question ${currentIndex + 1} of ${questions.length}`
-                : `โจทย์ข้อ ${currentIndex + 1} จาก ${questions.length} ข้อ`}
+                : `ข้อที่ ${currentIndex + 1} จาก ${questions.length} ข้อ`}
             </span>
           </div>
-          <h2 className="text-lg sm:text-xl font-bold text-slate-900 mt-1 line-clamp-1">
+          <h2 className="text-base sm:text-lg font-semibold text-[#1F1E1D] mt-1 line-clamp-1">
             {examTitle}
           </h2>
         </div>
 
-        {/* Timer & Controls */}
-        <div className="flex items-center space-x-3 self-end sm:self-auto">
+        {/* Save to History, Timer & Controls */}
+        <div className="flex items-center flex-wrap gap-2 self-end sm:self-auto">
+          {onSaveToHistory && (
+            <SaveToHistoryButton
+              isSaved={isSavedToHistory}
+              onSave={onSaveToHistory}
+            />
+          )}
+
           <div
-            className={`inline-flex items-center px-4 py-2 rounded-xl border text-base font-mono font-bold transition-all ${
+            className={`inline-flex items-center px-3.5 py-2 rounded-xl border text-sm font-mono font-semibold transition-all ${
               isTimeUrgent
-                ? "bg-rose-50 border-rose-300 text-rose-700 animate-pulse"
-                : "bg-slate-50 border-slate-200 text-slate-900"
+                ? "bg-[#EFECE4] border-[#1F1E1D] text-[#1F1E1D] animate-pulse"
+                : "bg-[#FAF9F5] border-[#E5E3DC] text-[#1F1E1D]"
             }`}
           >
-            <Clock className={`w-4 h-4 mr-2 ${isTimeUrgent ? "text-rose-600" : "text-slate-700"}`} />
+            <Clock className="w-4 h-4 mr-2 text-[#1F1E1D]" />
             <span>
               {String(minutes).padStart(2, "0")}:{String(seconds).padStart(2, "0")}
             </span>
@@ -147,7 +159,7 @@ export function MockExamView({
           <button
             type="button"
             onClick={() => setIsPaused(!isPaused)}
-            className="p-2 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors cursor-pointer"
+            className="p-2 rounded-xl border border-[#E5E3DC] text-[#1F1E1D] hover:bg-[#FAF9F5] transition-colors cursor-pointer"
             title={
               isPaused
                 ? language === "en"
@@ -158,24 +170,25 @@ export function MockExamView({
                 : "พักชั่วคราว"
             }
           >
-            {isPaused ? <Play className="w-4 h-4 text-blue-600" /> : <Pause className="w-4 h-4" />}
+            {isPaused ? <Play className="w-4 h-4 text-[#1F1E1D]" /> : <Pause className="w-4 h-4" />}
           </button>
         </div>
       </div>
 
       {isPaused && (
-        <div className="p-5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-sm flex items-center justify-between">
+        <div className="p-4 sm:p-5 rounded-2xl bg-[#EFECE4] border border-[#DFDDD6] text-[#1F1E1D] text-sm flex items-center justify-between gap-3">
           <div className="flex items-center space-x-2">
-            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+            <AlertTriangle className="w-4 h-4 text-[#1F1E1D] shrink-0" />
             <span>
               {language === "en"
                 ? "Exam is paused. Questions are hidden to ensure test integrity."
-                : "เวลาสอบถูกหยุดชั่วคราว ข้อสอบถูกซ่อนเพื่อความโปร่งใส"}
+                : "เวลาสอบถูกหยุดชั่วคราว ข้อสอบถูกซ่อนไว้"}
             </span>
           </div>
           <button
+            type="button"
             onClick={() => setIsPaused(false)}
-            className="px-4 py-1.5 bg-amber-700 text-white rounded-lg font-medium hover:bg-amber-800 text-xs sm:text-sm cursor-pointer"
+            className="px-4 py-1.5 bg-[#1F1E1D] text-white rounded-xl font-medium hover:bg-[#33322F] text-xs sm:text-sm cursor-pointer shrink-0"
           >
             {language === "en" ? "Resume Exam" : "ทำข้อสอบต่อ"}
           </button>
@@ -183,25 +196,25 @@ export function MockExamView({
       )}
 
       {!isPaused && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
-          {/* Main Question Card (Left 8 cols on desktop) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+          {/* Main Question Card */}
           <div className="lg:col-span-8 space-y-4">
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 sm:p-8 lg:p-10 shadow-xs min-h-[460px] flex flex-col justify-between">
+            <div className="bg-white rounded-2xl border border-[#E5E3DC] p-5 sm:p-7 min-h-[420px] flex flex-col justify-between">
               {/* Question Text */}
               <div className="space-y-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center space-x-2.5">
-                    <span className="w-8 h-8 rounded-lg bg-slate-900 text-white text-xs font-bold flex items-center justify-center">
+                    <span className="w-7 h-7 rounded-lg bg-[#1F1E1D] text-white text-xs font-semibold flex items-center justify-center">
                       {currentIndex + 1}
                     </span>
-                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    <span className="text-xs font-medium uppercase tracking-wider text-[#6B6A65]">
                       {currentQ.difficulty === "analysis"
                         ? language === "en"
                           ? "Application & Analysis"
-                          : "ข้อสอบวิเคราะห์ (Application)"
+                          : "ข้อสอบวิเคราะห์"
                         : language === "en"
                         ? "Recall & Concept"
-                        : "ข้อสอบความจำ/พื้นฐาน (Recall)"}
+                        : "ข้อสอบพื้นฐาน"}
                     </span>
                   </div>
 
@@ -210,13 +223,13 @@ export function MockExamView({
                     onClick={() => toggleFlag(currentIndex)}
                     className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs transition-colors cursor-pointer ${
                       flagged[currentIndex]
-                        ? "bg-amber-100 text-amber-900 font-semibold border border-amber-300"
-                        : "text-slate-500 hover:text-slate-900 hover:bg-slate-100 border border-transparent"
+                        ? "bg-[#EFECE4] text-[#1F1E1D] font-medium border border-[#DFDDD6]"
+                        : "text-[#6B6A65] hover:text-[#1F1E1D] hover:bg-[#FAF9F5] border border-transparent"
                     }`}
                   >
                     <Bookmark
                       className={`w-3.5 h-3.5 mr-1.5 ${
-                        flagged[currentIndex] ? "fill-amber-500 text-amber-500" : ""
+                        flagged[currentIndex] ? "fill-[#1F1E1D] text-[#1F1E1D]" : ""
                       }`}
                     />
                     <span>
@@ -231,13 +244,13 @@ export function MockExamView({
                   </button>
                 </div>
 
-                <h3 className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 leading-relaxed pt-2 break-words">
+                <h3 className="text-base sm:text-lg font-semibold text-[#1F1E1D] leading-relaxed pt-1 break-words">
                   {currentQ.question}
                 </h3>
               </div>
 
               {/* 4 Choices */}
-              <div className="space-y-3 my-6">
+              <div className="space-y-2.5 my-6">
                 {[0, 1, 2, 3].map((optIdx) => {
                   const choiceText = currentQ.options[optIdx] || "";
                   const isSelected = userAnswers[currentIndex] === optIdx;
@@ -248,17 +261,17 @@ export function MockExamView({
                       id={`choice-${currentIndex}-${optIdx}`}
                       type="button"
                       onClick={() => handleSelectOption(optIdx)}
-                      className={`w-full max-w-full min-w-0 p-4 sm:p-5 rounded-xl border text-left flex items-start gap-3.5 sm:gap-4 transition-all cursor-pointer select-none active:scale-[0.99] ${
+                      className={`w-full max-w-full min-w-0 p-3.5 sm:p-4 rounded-xl border text-left flex items-start gap-3 transition-colors cursor-pointer select-none ${
                         isSelected
-                          ? "border-slate-900 bg-slate-50 text-slate-900 font-medium shadow-xs ring-1 ring-slate-900"
-                          : "border-slate-200 bg-white hover:bg-slate-50/60 hover:border-slate-300 text-slate-800"
+                          ? "border-[#1F1E1D] bg-[#EFECE4]/70 text-[#1F1E1D] font-medium"
+                          : "border-[#E5E3DC] bg-[#FAF9F5]/60 hover:bg-[#FAF9F5] hover:border-[#C9C6BE] text-[#1F1E1D]"
                       }`}
                     >
                       <span
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 transition-colors ${
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-semibold shrink-0 mt-0.5 transition-colors ${
                           isSelected
-                            ? "bg-slate-900 text-white shadow-2xs"
-                            : "bg-slate-100 text-slate-600 border border-slate-200"
+                            ? "bg-[#1F1E1D] text-white"
+                            : "bg-white text-[#6B6A65] border border-[#DFDDD6]"
                         }`}
                       >
                         {choiceLetters[optIdx]}
@@ -272,15 +285,15 @@ export function MockExamView({
               </div>
 
               {/* Bottom Card Navigation */}
-              <div className="border-t border-slate-100 pt-5 mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center space-x-3 w-full sm:w-auto">
+              <div className="border-t border-[#ECEAE3] pt-4 mt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center space-x-2.5 w-full sm:w-auto">
                   <button
                     type="button"
                     disabled={currentIndex === 0}
                     onClick={() => setCurrentIndex((prev) => Math.max(prev - 1, 0))}
-                    className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-xs sm:text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 disabled:opacity-30 disabled:pointer-events-none inline-flex items-center gap-1.5 transition-all cursor-pointer"
+                    className="px-4 py-2 rounded-xl border border-[#DFDDD6] bg-white text-xs sm:text-sm font-medium text-[#1F1E1D] hover:bg-[#FAF9F5] disabled:opacity-30 disabled:pointer-events-none inline-flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
-                    <ChevronLeft className="w-4 h-4 text-slate-500" />
+                    <ChevronLeft className="w-4 h-4 text-[#6B6A65]" />
                     <span>{language === "en" ? "Previous" : "ข้อก่อนหน้า"}</span>
                   </button>
 
@@ -288,7 +301,7 @@ export function MockExamView({
                     <button
                       type="button"
                       onClick={() => setCurrentIndex((prev) => Math.min(prev + 1, questions.length - 1))}
-                      className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                      className="px-5 py-2 rounded-xl bg-[#1F1E1D] hover:bg-[#33322F] text-white text-xs sm:text-sm font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
                       <span>{language === "en" ? "Next" : "ข้อถัดไป"}</span>
                       <ChevronRight className="w-4 h-4" />
@@ -297,24 +310,24 @@ export function MockExamView({
                     <button
                       type="button"
                       onClick={() => setShowConfirmSubmit(true)}
-                      className="px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                      className="px-5 py-2 rounded-xl bg-[#1F1E1D] hover:bg-[#33322F] text-white text-xs sm:text-sm font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
-                      <Send className="w-3.5 h-3.5 mr-0.5" />
+                      <Send className="w-3.5 h-3.5" />
                       <span>{language === "en" ? "Submit Exam" : "ส่งข้อสอบ"}</span>
                     </button>
                   )}
                 </div>
 
-                <div className="text-xs sm:text-sm text-slate-500 bg-slate-50 border border-slate-200/80 px-4 py-2 rounded-xl text-center self-center sm:self-auto">
+                <div className="text-xs text-[#6B6A65] bg-[#FAF9F5] border border-[#E5E3DC] px-3.5 py-2 rounded-xl text-center self-center sm:self-auto">
                   {language === "en" ? (
                     <>
-                      Answered <strong className="text-slate-900 font-bold">{answeredCount}</strong> of{" "}
-                      <strong className="text-slate-900 font-bold">{questions.length}</strong> questions
+                      Answered <strong className="text-[#1F1E1D]">{answeredCount}</strong> of{" "}
+                      <strong className="text-[#1F1E1D]">{questions.length}</strong>
                     </>
                   ) : (
                     <>
-                      ตอบแล้ว <strong className="text-slate-900 font-bold">{answeredCount}</strong> จาก{" "}
-                      <strong className="text-slate-900 font-bold">{questions.length}</strong> ข้อ
+                      ตอบแล้ว <strong className="text-[#1F1E1D]">{answeredCount}</strong> จาก{" "}
+                      <strong className="text-[#1F1E1D]">{questions.length}</strong> ข้อ
                     </>
                   )}
                 </div>
@@ -322,22 +335,22 @@ export function MockExamView({
             </div>
           </div>
 
-          {/* Question Grid Sidebar (Right 4 cols on desktop, sticky) */}
-          <div className="lg:col-span-4 space-y-4 lg:sticky lg:top-24">
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs space-y-4">
+          {/* Question Grid Sidebar */}
+          <div className="lg:col-span-4 space-y-4 lg:sticky lg:top-6">
+            <div className="bg-white rounded-2xl border border-[#E5E3DC] p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                  {language === "en" ? "Question Grid" : "แผนผังข้อสอบ (Question Grid)"}
+                <span className="text-xs font-semibold text-[#1F1E1D] uppercase tracking-wider">
+                  {language === "en" ? "Question Grid" : "แผนผังข้อสอบ"}
                 </span>
-                <span className="text-xs font-mono font-semibold text-slate-600">
+                <span className="text-xs font-mono font-semibold text-[#6B6A65]">
                   {Math.round((answeredCount / questions.length) * 100)}%
                 </span>
               </div>
 
               {/* Progress bar */}
-              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+              <div className="w-full bg-[#EFECE4] h-1.5 rounded-full overflow-hidden">
                 <div
-                  className="bg-slate-900 h-full transition-all duration-300"
+                  className="bg-[#1F1E1D] h-full transition-all duration-300"
                   style={{ width: `${(answeredCount / questions.length) * 100}%` }}
                 />
               </div>
@@ -354,17 +367,17 @@ export function MockExamView({
                       key={idx}
                       type="button"
                       onClick={() => setCurrentIndex(idx)}
-                      className={`h-10 rounded-lg text-xs font-semibold transition-all relative flex items-center justify-center cursor-pointer ${
+                      className={`h-9 rounded-lg text-xs font-semibold transition-all relative flex items-center justify-center cursor-pointer ${
                         isCurrent
-                          ? "ring-2 ring-slate-900 border-slate-900 bg-white text-slate-900 font-bold"
+                          ? "ring-2 ring-[#1F1E1D] border-[#1F1E1D] bg-white text-[#1F1E1D]"
                           : isAnswered
-                          ? "bg-slate-100 border border-slate-300 text-slate-900"
-                          : "bg-slate-50 border border-slate-200 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                          ? "bg-[#EFECE4] border border-[#D4D1C8] text-[#1F1E1D]"
+                          : "bg-[#FAF9F5] border border-[#E5E3DC] text-[#9A9891] hover:bg-[#EFECE4]/60 hover:text-[#1F1E1D]"
                       }`}
                     >
                       <span>{idx + 1}</span>
                       {isFlag && (
-                        <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-white" />
+                        <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#1F1E1D] ring-2 ring-white" />
                       )}
                     </button>
                   );
@@ -372,15 +385,15 @@ export function MockExamView({
               </div>
 
               {/* Legend */}
-              <div className="pt-3 border-t border-slate-100 space-y-2 text-xs text-slate-500">
+              <div className="pt-3 border-t border-[#ECEAE3] space-y-1.5 text-xs text-[#6B6A65]">
                 <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 rounded bg-slate-100 border border-slate-300" />
+                  <div className="w-3 h-3 rounded bg-[#EFECE4] border border-[#D4D1C8]" />
                   <span>
                     {language === "en" ? `Answered (${answeredCount})` : `ตอบแล้ว (${answeredCount})`}
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <div className="w-3 h-3 rounded bg-slate-50 border border-slate-200" />
+                  <div className="w-3 h-3 rounded bg-[#FAF9F5] border border-[#E5E3DC]" />
                   <span>
                     {language === "en"
                       ? `Unanswered (${questions.length - answeredCount})`
@@ -388,7 +401,7 @@ export function MockExamView({
                   </span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#1F1E1D]" />
                   <span>
                     {language === "en"
                       ? `Marked for review (${Object.values(flagged).filter(Boolean).length})`
@@ -402,16 +415,16 @@ export function MockExamView({
                 id="exam-submit-confirm-btn"
                 type="button"
                 onClick={() => setShowConfirmSubmit(true)}
-                className="w-full py-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-semibold transition-all flex items-center justify-center space-x-2 shadow-xs cursor-pointer active:scale-[0.99]"
+                className="w-full py-3 rounded-xl bg-[#1F1E1D] hover:bg-[#33322F] text-white text-xs sm:text-sm font-medium transition-colors flex items-center justify-center space-x-2 cursor-pointer"
               >
-                <Send className="w-4 h-4 text-slate-300" />
+                <Send className="w-3.5 h-3.5" />
                 <span>{language === "en" ? "Submit Exam" : "ส่งข้อสอบเพื่อตรวจผล"}</span>
               </button>
 
               <button
                 type="button"
                 onClick={onExit}
-                className="w-full text-center text-xs text-slate-500 hover:text-rose-600 font-medium py-1 transition-colors cursor-pointer"
+                className="w-full text-center text-xs text-[#6B6A65] hover:text-[#1F1E1D] font-medium py-1 transition-colors cursor-pointer"
               >
                 {language === "en" ? "Cancel Exam" : "ยกเลิกการสอบนี้"}
               </button>
@@ -422,28 +435,28 @@ export function MockExamView({
 
       {/* Confirmation Modal */}
       {showConfirmSubmit && (
-        <div className="fixed inset-0 z-50 bg-[#0F172A]/50 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl border border-slate-200 space-y-4">
-            <h4 className="text-lg font-bold text-slate-900">
+        <div className="fixed inset-0 z-50 bg-[#1F1E1D]/40 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-[#FAF9F5] rounded-2xl max-w-md w-full p-6 shadow-xl border border-[#E5E3DC] space-y-4">
+            <h4 className="text-lg font-semibold text-[#1F1E1D]">
               {language === "en" ? "Confirm Submission?" : "ยืนยันการส่งข้อสอบ?"}
             </h4>
-            <div className="text-xs sm:text-sm text-slate-600 space-y-2 leading-relaxed">
+            <div className="text-xs sm:text-sm text-[#4A4945] space-y-2 leading-relaxed">
               <p>
                 {language === "en" ? (
                   <>
-                    You have answered <strong>{answeredCount}</strong> out of{" "}
-                    <strong>{questions.length}</strong> questions.
+                    You have answered <strong className="text-[#1F1E1D]">{answeredCount}</strong> out of{" "}
+                    <strong className="text-[#1F1E1D]">{questions.length}</strong> questions.
                   </>
                 ) : (
                   <>
-                    คุณตอบข้อสอบไปแล้ว <strong>{answeredCount}</strong> จากทั้งหมด{" "}
-                    <strong>{questions.length}</strong> ข้อ
+                    คุณตอบข้อสอบไปแล้ว <strong className="text-[#1F1E1D]">{answeredCount}</strong> จากทั้งหมด{" "}
+                    <strong className="text-[#1F1E1D]">{questions.length}</strong> ข้อ
                   </>
                 )}
               </p>
               {!isAllAnswered && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 flex items-start space-x-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                <div className="p-3 bg-[#EFECE4] border border-[#DFDDD6] rounded-xl text-[#1F1E1D] flex items-start space-x-2">
+                  <AlertTriangle className="w-4 h-4 text-[#1F1E1D] mt-0.5 shrink-0" />
                   <span>
                     {language === "en"
                       ? `There are still ${questions.length - answeredCount} unanswered questions. Unanswered questions will receive 0 points.`
@@ -453,20 +466,20 @@ export function MockExamView({
               )}
             </div>
 
-            <div className="flex items-center justify-end space-x-3 pt-2">
+            <div className="flex items-center justify-end space-x-2.5 pt-2">
               <button
                 type="button"
                 onClick={() => setShowConfirmSubmit(false)}
-                className="px-4 py-2 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+                className="px-4 py-2 rounded-xl border border-[#DFDDD6] bg-white text-xs font-medium text-[#1F1E1D] hover:bg-[#FAF9F5] cursor-pointer"
               >
                 {language === "en" ? "Return to Exam" : "กลับไปทำต่อ"}
               </button>
               <button
                 type="button"
                 onClick={handleForceSubmit}
-                className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-xs cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-[#1F1E1D] hover:bg-[#33322F] text-white text-xs font-medium cursor-pointer"
               >
-                {language === "en" ? "Confirm & Submit" : "ยืนยันส่งข้อสอบทันที"}
+                {language === "en" ? "Confirm & Submit" : "ยืนยันส่งข้อสอบ"}
               </button>
             </div>
           </div>

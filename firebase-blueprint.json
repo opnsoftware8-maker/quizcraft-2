@@ -1,0 +1,311 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user profile stored privately per user UID (Google Sign-In only).",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID matching the document ID."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 320,
+          "description": "Verified Google account email address (strictly owner-private PII)."
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "User display name from Google profile."
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Google profile avatar URL."
+        },
+        "preferredLanguage": {
+          "type": "string",
+          "enum": ["en", "th"],
+          "description": "User UI language preference."
+        },
+        "activePersonaId": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Currently selected AI teacher persona ID (empty string when standard default)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when user profile was first created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest profile sync."
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "displayName",
+        "photoURL",
+        "preferredLanguage",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AiPersona": {
+      "title": "AiPersona",
+      "description": "Custom AI teacher personality profile saved per user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique persona identifier."
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Owner user UID matching parent user document."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Display name of the AI teacher persona."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600,
+          "description": "Concise personality traits and teaching instructions."
+        },
+        "profileIcon": {
+          "type": "string",
+          "enum": [
+            "user",
+            "graduation-cap",
+            "book-open",
+            "glasses",
+            "compass",
+            "feather",
+            "award"
+          ],
+          "description": "Legacy monochrome profile icon key."
+        },
+        "profileImage": {
+          "type": "string",
+          "maxLength": 60000,
+          "pattern": "^(|data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+)$",
+          "description": "Optional compressed base64 data URL for the persona profile photo (empty string means clean white profile)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when persona was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest persona edit."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "name",
+        "description",
+        "profileIcon",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "StudyHistoryItem": {
+      "title": "StudyHistoryItem",
+      "description": "Saved learning history snapshot (either a generated summary or a generated quiz/practice set) owned by the user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique study history item identifier."
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Owner user UID matching parent user document."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["summary", "quiz"],
+          "description": "Type of saved study item: summary or quiz."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Display title of the summary or quiz."
+        },
+        "subject": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Subject or category label."
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50000,
+          "description": "Full Markdown/text snapshot used for review and AI chat context."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when saved to study history."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of creation/update."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "type",
+        "title",
+        "subject",
+        "content",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ChatSession": {
+      "title": "ChatSession",
+      "description": "A conversation session owned by an authenticated user.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique chat session identifier."
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Owner user UID."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "description": "Short summary title derived from the first user prompt."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the chat session started."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the latest message in the session."
+        }
+      },
+      "required": ["id", "userId", "title", "createdAt", "updatedAt"]
+    },
+    "ChatMessageDoc": {
+      "title": "ChatMessageDoc",
+      "description": "An individual user or assistant chat message inside a chat session.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique message identifier."
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Owner user UID matching parent user document."
+        },
+        "chatId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Parent chat session ID."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "assistant"],
+          "description": "Message author role."
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50000,
+          "description": "Plain text or Markdown message body."
+        },
+        "feedback": {
+          "type": "string",
+          "enum": ["up", "down", "none"],
+          "description": "User rating state for assistant messages."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the message was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest update (feedback or retry)."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "chatId",
+        "role",
+        "content",
+        "feedback",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-private user profile, language preference, and active AI persona selection."
+    },
+    "/users/{userId}/personas/{personaId}": {
+      "schema": { "$ref": "#/entities/AiPersona" },
+      "description": "Custom AI teacher personas saved by the user."
+    },
+    "/users/{userId}/studyHistory/{itemId}": {
+      "schema": { "$ref": "#/entities/StudyHistoryItem" },
+      "description": "Saved summaries and quizzes in the user's study history."
+    },
+    "/users/{userId}/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/ChatSession" },
+      "description": "Chat sessions belonging to a specific user."
+    },
+    "/users/{userId}/chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessageDoc" },
+      "description": "Messages belonging to a user's chat session."
+    }
+  }
+}

@@ -59,14 +59,10 @@ export const DICTIONARY = {
   en: {
     // App Branding
     appName: "QuizCraft",
-    appTagline: "Academic Problem Solver & Exam Studio",
-    appFooter: "QuizCraft Studio • Problem Solver, Practice Exams & Lesson Summaries",
-    appFooterSub: "LocalStorage Offline-ready • Minimalist Studio Edition",
 
     // Navigation & Header
     navSolve: "Problem Solver",
     navQuiz: "Exam Studio",
-    navHistory: "History",
     navAnalytics: "Analytics",
     navApiKey: "API Key",
     navReset: "New Session",
@@ -255,10 +251,6 @@ export const DICTIONARY = {
     summaryStartQuizBtn: "Start Practice Quiz",
 
     // Modals
-    historyTitle: "Practice History & Score Archive",
-    historyEmpty: "No practice history recorded yet.",
-    historyClearBtn: "Clear All History",
-    historyCloseBtn: "Close",
     apiKeyTitle: "Gemini API Key Settings",
     apiKeyDesc: "Provide your own Gemini API key for higher rate limits and uninterrupted access.",
     apiKeyPlaceholder: "Paste your AI Studio API key (AIza...)",
@@ -271,14 +263,10 @@ export const DICTIONARY = {
   th: {
     // App Branding
     appName: "QuizCraft",
-    appTagline: "ระบบวิเคราะห์โจทย์และสตูดิโอสร้างแบบทดสอบ",
-    appFooter: "QuizCraft Studio • ระบบวิเคราะห์โจทย์ปัญหา สร้างแบบทดสอบ และสรุปบทเรียน",
-    appFooterSub: "LocalStorage Offline-ready • Minimalist Studio Edition",
 
     // Navigation & Header
     navSolve: "แก้โจทย์ปัญหา",
     navQuiz: "สร้างแบบทดสอบ",
-    navHistory: "ประวัติ",
     navAnalytics: "สถิติ",
     navApiKey: "API Key",
     navReset: "เริ่มใหม่",
@@ -467,10 +455,6 @@ export const DICTIONARY = {
     summaryStartQuizBtn: "เริ่มทำข้อสอบทดสอบ",
 
     // Modals
-    historyTitle: "ประวัติการทำข้อสอบ & คลังคะแนน",
-    historyEmpty: "ยังไม่มีประวัติการทำข้อสอบที่บันทึกไว้",
-    historyClearBtn: "ล้างประวัติทั้งหมด",
-    historyCloseBtn: "ปิด",
     apiKeyTitle: "ตั้งค่า Gemini API Key ส่วนตัว",
     apiKeyDesc: "ระบุ API Key ของคุณเพื่อโควตาการใช้งานที่สูงขึ้นและทำงานได้ต่อเนื่องไม่มีสะดุด",
     apiKeyPlaceholder: "วาง AI Studio API Key ของคุณ (AIza...)",

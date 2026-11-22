@@ -115,3 +115,53 @@ export async function generateContentWithFallback(options: {
 
   throw lastError || new Error("ไม่สามารถประมวลผลผ่านระบบ AI ได้ กรุณาลองใหม่อีกครั้ง");
 }
+
+export async function generateChatStreamWithFallback(options: {
+  contents: any;
+  config?: any;
+  models?: string[];
+  apiKey?: string;
+}) {
+  const defaultStreamModels = ["gemini-4-hydrogen", ...TEXT_MODELS];
+  const models =
+    options.models && options.models.length > 0 ? options.models : defaultStreamModels;
+  let lastError: any = null;
+  const client = getAiClient(options.apiKey);
+
+  for (let m = 0; m < models.length; m++) {
+    const model = models[m];
+    try {
+      const stream = await client.models.generateContentStream({
+        model,
+        contents: options.contents,
+        config: options.config,
+      });
+      return { stream, model };
+    } catch (err: any) {
+      lastError = err;
+      if (isHighDemandError(err)) {
+        continue;
+      }
+      continue;
+    }
+  }
+
+  console.error("All Gemini models failed to stream content:", lastError?.message || lastError);
+
+  if (lastError && isHighDemandError(lastError)) {
+    throw new Error(
+      "โมเดล AI กำลังมีผู้ใช้งานหนาแน่นชั่วคราว (Model High Demand) กรุณากดปุ่มลองใหม่อีกครั้งในไม่กี่วินาที"
+    );
+  }
+
+  const errMsg = String(lastError?.message || "");
+  if (
+    errMsg.includes("API_KEY_INVALID") ||
+    errMsg.includes("API key not valid") ||
+    errMsg.includes("400")
+  ) {
+    throw new Error("Gemini API Key ไม่ถูกต้อง กรุณาตรวจสอบรหัส API Key ในหน้าต่างตั้งค่า");
+  }
+
+  throw lastError || new Error("ไม่สามารถเชื่อมต่อระบบสนทนา AI ได้ กรุณาลองใหม่อีกครั้ง");
+}

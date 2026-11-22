@@ -1,21 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import {
-  Key,
-  X,
-  CheckCircle2,
-  AlertCircle,
-  ExternalLink,
-  Eye,
-  EyeOff,
-  Trash2,
-  Zap,
-  ShieldCheck,
-  HelpCircle,
-  Loader2,
-  Sparkles,
-} from "lucide-react";
+import { X, Eye, EyeOff, Loader2 } from "lucide-react";
 import {
   getStoredCustomApiKey,
   setStoredCustomApiKey,
@@ -49,8 +35,19 @@ export function ApiKeyModal({ isOpen, onClose, onKeyChange }: ApiKeyModalProps) 
       setApiKeyInput(current || "");
       setVerifyStatus({ type: "idle", message: "" });
     }, 0);
-    return () => clearTimeout(timer);
-  }, [isOpen]);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -61,7 +58,7 @@ export function ApiKeyModal({ isOpen, onClose, onKeyChange }: ApiKeyModalProps) 
         type: "error",
         message:
           language === "en"
-            ? "Please enter your Gemini API Key before testing"
+            ? "Please enter your Gemini API Key before testing."
             : "กรุณากรอก Gemini API Key ก่อนทำการตรวจสอบ",
       });
       return;
@@ -72,7 +69,7 @@ export function ApiKeyModal({ isOpen, onClose, onKeyChange }: ApiKeyModalProps) 
         type: "error",
         message:
           language === "en"
-            ? "Invalid format: Gemini API Keys typically begin with 'AIza...'"
+            ? "Invalid format: Gemini API Keys typically begin with 'AIza...'."
             : "รูปแบบไม่ถูกต้อง: Gemini API Key มักเริ่มต้นด้วย 'AIza...'",
       });
       return;
@@ -98,8 +95,8 @@ export function ApiKeyModal({ isOpen, onClose, onKeyChange }: ApiKeyModalProps) 
           type: "success",
           message:
             language === "en"
-              ? "Connection verified! Your custom API Key has been saved locally."
-              : "เชื่อมต่อสำเร็จ! บันทึก API Key ส่วนตัวของคุณเรียบร้อยแล้ว",
+              ? "Connection verified. Your custom API Key has been saved."
+              : "เชื่อมต่อสำเร็จ บันทึก API Key ส่วนตัวเรียบร้อยแล้ว",
         });
       } else {
         setVerifyStatus({
@@ -107,7 +104,7 @@ export function ApiKeyModal({ isOpen, onClose, onKeyChange }: ApiKeyModalProps) 
           message:
             data.error ||
             (language === "en"
-              ? "Could not verify connection with this API key. Please check key credentials."
+              ? "Could not verify this API key. Please check your credentials."
               : "ไม่สามารถเชื่อมต่อด้วย API Key นี้ได้ กรุณาตรวจสอบรหัสใหม่อีกครั้ง"),
         });
       }
@@ -138,113 +135,79 @@ export function ApiKeyModal({ isOpen, onClose, onKeyChange }: ApiKeyModalProps) 
 
   const maskKey = (key: string) => {
     if (key.length <= 8) return "••••••••";
-    return key.slice(0, 6) + "••••••••••••••••" + key.slice(-4);
+    return key.slice(0, 6) + "••••••••" + key.slice(-4);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Modal Header */}
-        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center border border-slate-200">
-              <Key className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-slate-900 text-base leading-tight">
-                {language === "en" ? "Custom Gemini API Key Setup" : "ตั้งค่า Gemini API Key ส่วนตัว"}
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {language === "en"
-                  ? "Unlock unlimited exam generation and study summaries using your personal quota"
-                  : "ปลดล็อกการสร้างข้อสอบและสรุปบทเรียนด้วยโควตาของคุณเอง"}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200/60 transition-colors cursor-pointer"
-            aria-label="Close"
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1F1E1D]/30 backdrop-blur-[1px]"
+      onClick={onClose}
+    >
+      <div
+        className="bg-[#FAF9F5] rounded-2xl border border-[#E5E3DC] shadow-xl max-w-md w-full overflow-hidden flex flex-col max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="api-key-modal-title"
+      >
+        {/* Minimal Header */}
+        <div className="px-6 py-4 border-b border-[#E5E3DC] flex items-center justify-between">
+          <h3
+            id="api-key-modal-title"
+            className="text-base font-semibold text-[#1F1E1D]"
           >
-            <X className="w-5 h-5" />
+            Gemini API Key
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-[#6B6A65] hover:text-[#1F1E1D] hover:bg-[#EFECE4] transition-colors cursor-pointer"
+            aria-label={language === "en" ? "Close" : "ปิด"}
+          >
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Modal Body */}
-        <div className="p-6 overflow-y-auto space-y-5 text-sm">
-          {/* Status Badge */}
-          {savedKey ? (
-            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200/80 flex items-start space-x-3">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-              <div className="flex-1">
-                <div className="font-semibold text-emerald-900 flex items-center space-x-2">
-                  <span>{language === "en" ? "Active: Using your custom API Key" : "กำลังใช้งาน API Key ส่วนตัวของคุณ (Active)"}</span>
-                </div>
-                <p className="text-xs text-emerald-700 mt-0.5 font-mono">
-                  {maskKey(savedKey)}
-                </p>
-                <p className="text-xs text-emerald-600 mt-1">
-                  {language === "en"
-                    ? "All AI generation requests will use this API key quota directly."
-                    : "ทุกคำขอสร้างข้อสอบและสรุปบทเรียนจะใช้โควตาของคีย์นี้โดยตรง"}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="p-3.5 rounded-xl bg-slate-100/90 border border-slate-200 flex items-start space-x-3">
-              <Sparkles className="w-5 h-5 text-slate-700 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold text-slate-900">
-                  {language === "en" ? "Default: Using system quota" : "กำลังใช้โควตาระบบส่วนกลาง (QuizCraft Shared)"}
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {language === "en"
-                    ? "Add your free Gemini API key to avoid shared traffic limits."
-                    : "หากโควตาส่วนกลางหนาแน่น คุณสามารถนำ API Key ฟรีของคุณมาใส่เพื่อใช้งานได้ทันทีแบบไม่มีสะดุด"}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Benefits Grid */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-              <div className="flex items-center space-x-1.5 text-slate-900 font-semibold text-xs">
-                <Zap className="w-3.5 h-3.5 text-amber-500" />
-                <span>{language === "en" ? "Private Quota" : "โควตาแยกอิสระ"}</span>
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                {language === "en" ? "Enjoy 1,500 daily free requests from your Google account." : "ใช้โควตาฟรีวันละ 1,500 ครั้งของบัญชี Google คุณเอง"}
-              </p>
-            </div>
-            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-              <div className="flex items-center space-x-1.5 text-slate-900 font-semibold text-xs">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                <span>{language === "en" ? "100% Client-Side" : "ปลอดภัย 100%"}</span>
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                {language === "en" ? "Saved only in your browser storage. Never sent to any external DB." : "บันทึกในเบราว์เซอร์เครื่องนี้เท่านั้น ไม่ส่งไปเก็บที่ฐานข้อมูลใดๆ"}
-              </p>
-            </div>
+        {/* Minimal Body */}
+        <div className="p-6 overflow-y-auto space-y-5 text-sm text-[#1F1E1D]">
+          {/* Simple Heading & Summary (replaces previous status and 2-column cards) */}
+          <div className="space-y-1.5">
+            <h4 className="text-sm font-semibold text-[#1F1E1D]">
+              {savedKey
+                ? language === "en"
+                  ? "Custom API Key Active"
+                  : "กำลังใช้งาน API Key ส่วนตัว"
+                : language === "en"
+                ? "Private Quota & Local Storage"
+                : "ใช้งานโควตาส่วนตัวและบันทึกในเบราว์เซอร์"}
+            </h4>
+            <p className="text-xs leading-relaxed text-[#6B6A65]">
+              {savedKey
+                ? `${language === "en" ? "Active key: " : "คีย์ที่ใช้งาน: "}${maskKey(savedKey)}`
+                : language === "en"
+                ? "Add your own free Gemini API Key to use your personal quota. Stored only in this browser."
+                : "ระบุ Gemini API Key ของคุณเพื่อใช้โควตาส่วนตัว ข้อมูลจะบันทึกไว้ในเบราว์เซอร์เครื่องนี้เท่านั้น"}
+            </p>
           </div>
 
-          {/* Input Form */}
+          {/* API Key Input */}
           <div className="space-y-2">
-            <label
-              htmlFor="gemini-api-key-input"
-              className="block font-medium text-slate-700 text-xs flex items-center justify-between"
-            >
-              <span>{language === "en" ? "Paste your Gemini API Key" : "วาง Gemini API Key ของคุณ"}</span>
+            <div className="flex items-center justify-between gap-2">
+              <label
+                htmlFor="gemini-api-key-input"
+                className="text-xs font-medium text-[#1F1E1D]"
+              >
+                {language === "en" ? "API Key" : "รหัส API Key"}
+              </label>
               <a
                 href="https://aistudio.google.com/apikey"
                 target="_blank"
                 rel="noreferrer noopener"
-                className="text-slate-600 hover:text-slate-900 font-normal inline-flex items-center space-x-1 hover:underline cursor-pointer"
+                className="text-xs text-[#6B6A65] hover:text-[#1F1E1D] underline underline-offset-2 transition-colors cursor-pointer"
               >
-                <span>{language === "en" ? "Get free key from Google AI Studio" : "กดรับคีย์ฟรีที่ Google AI Studio"}</span>
-                <ExternalLink className="w-3 h-3 ml-1" />
+                {language === "en" ? "Get API Key" : "รับคีย์ฟรีจาก Google AI Studio"}
               </a>
-            </label>
+            </div>
 
             <div className="relative">
               <input
@@ -255,16 +218,24 @@ export function ApiKeyModal({ isOpen, onClose, onKeyChange }: ApiKeyModalProps) 
                   setApiKeyInput(e.target.value);
                   setVerifyStatus({ type: "idle", message: "" });
                 }}
-                placeholder="AIzaSy..."
-                className="w-full pl-3.5 pr-11 py-2.5 rounded-xl border border-slate-300 text-slate-800 text-sm font-mono placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-slate-400 transition-all bg-white"
+                placeholder="AIza..."
+                className="w-full pl-3.5 pr-11 py-2.5 rounded-xl border border-[#DFDDD6] bg-white text-[#1F1E1D] text-[16px] font-mono placeholder:text-[#8C8A84] focus:outline-none focus:border-[#1F1E1D] transition-colors"
                 autoComplete="off"
                 spellCheck={false}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 rounded transition-colors cursor-pointer"
-                title={showPassword ? (language === "en" ? "Hide" : "ซ่อนรหัส") : (language === "en" ? "Show" : "แสดงรหัส")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-[#6B6A65] hover:text-[#1F1E1D] transition-colors cursor-pointer"
+                aria-label={
+                  showPassword
+                    ? language === "en"
+                      ? "Hide key"
+                      : "ซ่อนรหัส"
+                    : language === "en"
+                    ? "Show key"
+                    : "แสดงรหัส"
+                }
               >
                 {showPassword ? (
                   <EyeOff className="w-4 h-4" />
@@ -275,42 +246,32 @@ export function ApiKeyModal({ isOpen, onClose, onKeyChange }: ApiKeyModalProps) 
             </div>
           </div>
 
-          {/* Verification Feedback Alert */}
+          {/* Simple Monochrome Feedback Text */}
           {verifyStatus.type !== "idle" && (
-            <div
-              className={`p-3 rounded-xl text-xs flex items-start space-x-2.5 ${
-                verifyStatus.type === "success"
-                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                  : "bg-rose-50 text-rose-800 border border-rose-200"
-              }`}
-            >
-              {verifyStatus.type === "success" ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-              ) : (
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              )}
-              <p className="leading-relaxed">{verifyStatus.message}</p>
-            </div>
+            <p className="text-xs leading-relaxed text-[#1F1E1D] bg-[#EFECE4] px-3.5 py-2.5 rounded-xl border border-[#E5E3DC]">
+              {verifyStatus.message}
+            </p>
           )}
 
           {/* Action Buttons */}
-          <div className="flex items-center space-x-2.5 pt-1">
+          <div className="flex items-center gap-2.5">
             <button
               type="button"
               onClick={handleTestAndSave}
               disabled={isVerifying || !apiKeyInput.trim()}
-              className="flex-1 inline-flex items-center justify-center px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400 text-white text-xs sm:text-sm font-medium rounded-xl transition-colors cursor-pointer disabled:cursor-not-allowed shadow-xs"
+              className="flex-1 inline-flex items-center justify-center px-4 py-2.5 bg-[#1F1E1D] hover:bg-[#33322F] disabled:bg-[#DFDDD6] disabled:text-[#8C8A84] text-white text-sm font-medium rounded-xl transition-colors cursor-pointer disabled:cursor-not-allowed"
             >
               {isVerifying ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin text-slate-300" />
-                  <span>{language === "en" ? "Testing connection..." : "กำลังทดสอบการเชื่อมต่อ..."}</span>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <span>
+                    {language === "en" ? "Verifying..." : "กำลังตรวจสอบ..."}
+                  </span>
                 </>
               ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4 mr-1.5 text-emerald-400" />
-                  <span>{language === "en" ? "Verify & Save Key" : "ทดสอบและบันทึกใช้งาน"}</span>
-                </>
+                <span>
+                  {language === "en" ? "Verify & Save" : "ตรวจสอบและบันทึก"}
+                </span>
               )}
             </button>
 
@@ -318,89 +279,67 @@ export function ApiKeyModal({ isOpen, onClose, onKeyChange }: ApiKeyModalProps) 
               <button
                 type="button"
                 onClick={handleRemoveKey}
-                className="inline-flex items-center justify-center px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs sm:text-sm font-medium rounded-xl border border-rose-200 transition-colors cursor-pointer"
-                title={language === "en" ? "Remove key" : "ลบคีย์และกลับไปใช้โควตาระบบ"}
+                className="inline-flex items-center justify-center px-4 py-2.5 bg-[#EFECE4] hover:bg-[#E5E3DC] text-[#1F1E1D] text-sm font-medium rounded-xl transition-colors cursor-pointer"
               >
-                <Trash2 className="w-4 h-4 mr-1 text-rose-600" />
-                <span>{language === "en" ? "Remove" : "ลบคีย์"}</span>
+                {language === "en" ? "Remove" : "ลบคีย์"}
               </button>
             )}
           </div>
 
-          {/* Step-by-Step Guide Accordion */}
-          <div className="border-t border-slate-100 pt-4">
+          {/* Minimal Text Guide Toggle */}
+          <div className="pt-2 border-t border-[#E5E3DC]">
             <button
               type="button"
               onClick={() => setShowGuide(!showGuide)}
-              className="w-full flex items-center justify-between text-xs text-slate-600 hover:text-slate-900 font-medium py-1 transition-colors cursor-pointer"
+              className="w-full flex items-center justify-between text-xs font-medium text-[#6B6A65] hover:text-[#1F1E1D] py-1 transition-colors cursor-pointer"
             >
-              <span className="flex items-center space-x-1.5">
-                <HelpCircle className="w-4 h-4 text-slate-500" />
-                <span>{language === "en" ? "How to obtain a free Gemini API Key (1 minute)" : "วิธีขอรับ Gemini API Key ฟรีใน 1 นาที (คลิกดู)"}</span>
+              <span>
+                {language === "en"
+                  ? "How to get a Gemini API Key"
+                  : "วิธีขอรับ Gemini API Key"}
               </span>
-              <span className="text-slate-400 text-xs">
-                {showGuide ? (language === "en" ? "Hide" : "ซ่อน") : (language === "en" ? "View" : "ดูวิธีทำ")}
+              <span>
+                {showGuide
+                  ? language === "en"
+                    ? "Hide"
+                    : "ซ่อน"
+                  : language === "en"
+                  ? "Show"
+                  : "ดูวิธีทำ"}
               </span>
             </button>
 
             {showGuide && (
-              <div className="mt-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 space-y-2">
-                <div className="flex items-start space-x-2">
-                  <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                    1
-                  </span>
-                  <p>
-                    {language === "en" ? "Navigate to " : "เข้าไปที่เว็บ "}
-                    <a
-                      href="https://aistudio.google.com/apikey"
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="text-slate-900 underline font-medium hover:text-blue-600"
-                    >
-                      aistudio.google.com/apikey
-                    </a>
-                  </p>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                    2
-                  </span>
-                  <p>{language === "en" ? "Sign in with your Google account." : "เข้าสู่ระบบด้วยบัญชี Google ของคุณ แล้วกดยอมรับเงื่อนไขการใช้งาน"}</p>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                    3
-                  </span>
-                  <p>
-                    {language === "en"
-                      ? 'Click "Create API key" and select your cloud project.'
-                      : 'กดปุ่มสีฟ้า "Create API key" จากนั้นเลือกโปรเจกต์หรือสร้างใหม่'}
-                  </p>
-                </div>
-                <div className="flex items-start space-x-2">
-                  <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-800 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                    4
-                  </span>
-                  <p>
-                    {language === "en"
-                      ? "Copy the key starting with AIza... and paste it above."
-                      : "คัดลอกรหัสที่ขึ้นต้นด้วย AIza... มาวางในช่องด้านบน แล้วกดทดสอบและบันทึก"}
-                  </p>
-                </div>
-              </div>
+              <ol className="mt-2.5 pl-4 list-decimal space-y-1.5 text-xs text-[#6B6A65] leading-relaxed">
+                <li>
+                  {language === "en" ? "Open " : "เข้าไปที่ "}
+                  <a
+                    href="https://aistudio.google.com/apikey"
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="text-[#1F1E1D] underline underline-offset-2"
+                  >
+                    aistudio.google.com/apikey
+                  </a>
+                </li>
+                <li>
+                  {language === "en"
+                    ? "Sign in with your Google account."
+                    : "เข้าสู่ระบบด้วยบัญชี Google ของคุณ"}
+                </li>
+                <li>
+                  {language === "en"
+                    ? 'Click "Create API key" and copy the AIza... code.'
+                    : 'กด "Create API key" แล้วคัดลอกรหัสที่ขึ้นต้นด้วย AIza...'}
+                </li>
+                <li>
+                  {language === "en"
+                    ? "Paste the key above and click Verify & Save."
+                    : "นำมาวางในช่องด้านบนแล้วกดตรวจสอบและบันทึก"}
+                </li>
+              </ol>
             )}
           </div>
-        </div>
-
-        {/* Modal Footer */}
-        <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-          <span>{language === "en" ? "Close anytime to continue" : "กดปิดเพื่อใช้งานต่อได้ทันที"}</span>
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium transition-colors cursor-pointer"
-          >
-            {language === "en" ? "Close" : "ปิด"}
-          </button>
         </div>
       </div>
     </div>

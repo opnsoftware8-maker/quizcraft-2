@@ -43,29 +43,6 @@ export interface SubjectiveGradingResult {
   groundedQuote: string;
 }
 
-export interface ExamHistoryRecord {
-  id: string;
-  timestamp: number;
-  dateFormatted: string;
-  noteTitle: string;
-  mode: 'quiz' | 'subjective' | 'flashcards';
-  score: number;
-  total: number;
-  percentage: number;
-  readinessRating:
-    | 'พร้อมสอบสูงมาก (90-100%)'
-    | 'พร้อมสอบดี (75-89%)'
-    | 'พอใช้ ควรทวนซ้ำ (60-74%)'
-    | 'มีช่องว่างความรู้ (<60%)'
-    | 'Highly Prepared (90-100%)'
-    | 'Well Prepared (75-89%)'
-    | 'Moderate Review Needed (60-74%)'
-    | 'Knowledge Gaps (<60%)'
-    | string;
-  durationSeconds: number;
-  commonMisconceptions: string[];
-}
-
 export interface StudySummarySection {
   heading: string;
   subheading?: string;
