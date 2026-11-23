@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   Menu,
   X,
@@ -13,12 +13,15 @@ import {
   UserCog,
   ChevronDown,
   Check,
+  Pin,
+  Trash2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useLanguage } from "@/lib/language-context";
 import { useFirebase } from "@/lib/firebase-context";
 import { AiPersona } from "@/lib/firestore-personas";
 import { PersonaAvatar } from "@/components/PersonaAvatarIcon";
+import { SavedChatSession } from "@/lib/browser-chats";
 
 export type AppPage = "chat" | "learn";
 
@@ -33,6 +36,11 @@ interface HeaderProps {
   activePersonaId: string;
   activePersona: AiPersona | null;
   onSelectPersona: (personaId: string) => Promise<void>;
+  savedChats: SavedChatSession[];
+  activeChatId: string | null;
+  onSelectChat: (chatId: string) => void;
+  onTogglePinChat: (chatId: string) => void;
+  onDeleteChat: (chatId: string) => void;
 }
 
 export function Header({
@@ -46,12 +54,19 @@ export function Header({
   activePersonaId,
   activePersona,
   onSelectPersona,
+  savedChats,
+  activeChatId,
+  onSelectChat,
+  onTogglePinChat,
+  onDeleteChat,
 }: HeaderProps) {
   const { language, toggleLanguage } = useLanguage();
   const { user, signOutUser } = useFirebase();
   const [isOpen, setIsOpen] = useState(false);
   const [isPersonaMenuOpen, setIsPersonaMenuOpen] = useState(false);
+  const [chatSearchQuery, setChatSearchQuery] = useState("");
   const personaDropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Body scroll lock while drawer is open
   useEffect(() => {
@@ -108,7 +123,7 @@ export function Header({
   }, [isPersonaMenuOpen]);
 
   const topBarItemClass =
-    "inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-[#1F1E1D] hover:bg-[#F0EEE6] transition-colors cursor-pointer whitespace-nowrap shrink-0";
+    "inline-flex items-center gap-2 px-2.5 sm:px-3 py-2 rounded-lg text-sm font-medium text-[#1F1E1D] hover:bg-[#F0EEE6] transition-colors cursor-pointer whitespace-nowrap shrink-0";
 
   const activePersonaLabel = activePersona
     ? activePersona.name
@@ -123,14 +138,109 @@ export function Header({
     );
   };
 
+  const filteredChats = useMemo(() => {
+    const q = chatSearchQuery.trim().toLowerCase();
+    if (!q) return savedChats;
+    return savedChats.filter((chat) => {
+      if (chat.title.toLowerCase().includes(q)) return true;
+      return chat.messages.some((m) => m.content.toLowerCase().includes(q));
+    });
+  }, [chatSearchQuery, savedChats]);
+
+  const pinnedChats = useMemo(
+    () => filteredChats.filter((c) => c.isPinned),
+    [filteredChats]
+  );
+
+  const unpinnedChats = useMemo(
+    () => filteredChats.filter((c) => !c.isPinned),
+    [filteredChats]
+  );
+
+  const renderChatRow = (chat: SavedChatSession) => {
+    const isActive = chat.id === activeChatId;
+    return (
+      <div
+        key={chat.id}
+        className={`group flex items-center gap-1 rounded-xl px-2 py-1.5 transition-colors ${
+          isActive ? "bg-[#EFECE4]" : "hover:bg-[#F0EEE6]"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            setIsOpen(false);
+            onSelectChat(chat.id);
+          }}
+          className="flex-1 min-w-0 text-left px-1.5 py-1 cursor-pointer"
+        >
+          <div className="text-sm font-medium text-[#1F1E1D] truncate">
+            {chat.title}
+          </div>
+        </button>
+
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePinChat(chat.id);
+            }}
+            title={
+              chat.isPinned
+                ? language === "en"
+                  ? "Unpin"
+                  : "เลิกปักหมุด"
+                : language === "en"
+                  ? "Pin"
+                  : "ปักหมุด"
+            }
+            aria-label={
+              chat.isPinned
+                ? language === "en"
+                  ? "Unpin chat"
+                  : "เลิกปักหมุดแชท"
+                : language === "en"
+                  ? "Pin chat"
+                  : "ปักหมุดแชท"
+            }
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+              chat.isPinned
+                ? "text-[#1F1E1D]"
+                : "text-[#8C8A84] hover:text-[#1F1E1D]"
+            }`}
+          >
+            <Pin
+              className="w-3.5 h-3.5"
+              fill={chat.isPinned ? "currentColor" : "none"}
+            />
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteChat(chat.id);
+            }}
+            title={language === "en" ? "Delete chat" : "ลบแชท"}
+            aria-label={language === "en" ? "Delete chat" : "ลบแชท"}
+            className="p-1.5 rounded-lg text-[#8C8A84] hover:text-[#1F1E1D] transition-colors cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
-      {/* Top Bar: Hamburger & Language on left (+ Persona Switcher right underneath), Two-Page Capsule Toggle (Chat | Learn) on right */}
+      {/* Top Bar: Hamburger + Quick New Chat + Language on left (+ Persona Switcher right underneath), Two-Page Capsule Toggle (Chat | Learn) on right */}
       <header className="w-full bg-[#FAF9F5]/95 backdrop-blur-xs sticky top-0 z-40 border-b border-[#ECEAE3]/70">
         <div className="w-full px-3 sm:px-5 pt-2 pb-2 flex items-start justify-between gap-2">
-          {/* Top-left stack: [Hamburger + Language] on top, [Persona Switcher] directly underneath */}
+          {/* Top-left stack: [Hamburger + Quick New Chat + Language] on top, [Persona Switcher] directly underneath */}
           <div className="flex flex-col items-start gap-1 min-w-0">
-            <div className="flex items-center gap-1 sm:gap-2">
+            <div className="flex items-center gap-0.5 sm:gap-1.5">
               {/* Top-left Hamburger Menu Button */}
               <button
                 type="button"
@@ -144,6 +254,22 @@ export function Header({
                 aria-expanded={isOpen}
               >
                 <Menu className="w-4 h-4 text-[#1F1E1D] shrink-0" />
+              </button>
+
+              {/* Quick New Chat Note Icon Button (matches reference header) */}
+              <button
+                type="button"
+                id="header-new-chat-btn"
+                onClick={() => {
+                  setIsPersonaMenuOpen(false);
+                  setIsOpen(false);
+                  onNewChat();
+                }}
+                className={topBarItemClass}
+                aria-label={language === "en" ? "New chat" : "แชทใหม่"}
+                title={language === "en" ? "New chat" : "แชทใหม่"}
+              >
+                <SquarePen className="w-4 h-4 text-[#1F1E1D] shrink-0" />
               </button>
 
               {/* EN/TH Switcher */}
@@ -374,7 +500,10 @@ export function Header({
                 aria-label={language === "en" ? "Sidebar navigation" : "เมนูนำทาง"}
               >
                 {/* Sidebar Header */}
-                <div className="px-4 h-14 flex items-center justify-end border-b border-[#ECEAE3]">
+                <div className="px-4 h-14 flex items-center justify-between border-b border-[#ECEAE3] shrink-0">
+                  <span className="text-sm font-semibold text-[#1F1E1D]">
+                    {language === "en" ? "Menu" : "เมนู"}
+                  </span>
                   <button
                     type="button"
                     id="sidebar-close-btn"
@@ -386,8 +515,8 @@ export function Header({
                   </button>
                 </div>
 
-                {/* Sidebar Navigation List */}
-                <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+                {/* Top Fixed Actions: New Chat & Search Chats Input */}
+                <div className="p-3 pb-2 space-y-2 border-b border-[#ECEAE3] shrink-0">
                   <button
                     type="button"
                     id="sidebar-new-chat-btn"
@@ -395,66 +524,117 @@ export function Header({
                       setIsOpen(false);
                       onNewChat();
                     }}
-                    className="w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-[15px] font-medium text-[#1F1E1D] hover:bg-[#F0EEE6] transition-colors cursor-pointer text-left"
+                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[15px] font-medium text-[#1F1E1D] hover:bg-[#F0EEE6] transition-colors cursor-pointer text-left"
                   >
                     <SquarePen className="w-4 h-4 text-[#1F1E1D] shrink-0" />
-                    <span>{language === "en" ? "New chat" : "New chat"}</span>
+                    <span>{language === "en" ? "New chat" : "แชทใหม่"}</span>
+                  </button>
+
+                  <div className="relative flex items-center">
+                    <Search className="w-4 h-4 text-[#6B6A65] absolute left-3 pointer-events-none" />
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      id="sidebar-search-chats-input"
+                      value={chatSearchQuery}
+                      onChange={(e) => setChatSearchQuery(e.target.value)}
+                      placeholder={
+                        language === "en" ? "Search chats..." : "ค้นหาแชท..."
+                      }
+                      className="w-full pl-9 pr-8 py-2 rounded-xl bg-white border border-[#E5E3DC] focus:border-[#1F1E1D] outline-hidden text-[16px] sm:text-sm text-[#1F1E1D] placeholder:text-[#8C8A84]"
+                    />
+                    {chatSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setChatSearchQuery("")}
+                        aria-label={language === "en" ? "Clear search" : "ล้างคำค้นหา"}
+                        className="absolute right-2 p-1 rounded-md text-[#6B6A65] hover:text-[#1F1E1D] cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Scrollable Saved Browser Chats Section */}
+                <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                  {filteredChats.length === 0 ? (
+                    <div className="py-6 px-3 text-center text-xs text-[#6B6A65]">
+                      {chatSearchQuery.trim()
+                        ? language === "en"
+                          ? "No matching chats found"
+                          : "ไม่พบแชทที่ค้นหา"
+                        : language === "en"
+                          ? "No saved chats yet"
+                          : "ยังไม่มีประวัติแชท"}
+                    </div>
+                  ) : (
+                    <>
+                      {pinnedChats.length > 0 && (
+                        <div className="space-y-1">
+                          <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[#6B6A65]">
+                            {language === "en" ? "Pinned" : "ปักหมุดแล้ว"}
+                          </div>
+                          {pinnedChats.map(renderChatRow)}
+                        </div>
+                      )}
+
+                      {unpinnedChats.length > 0 && (
+                        <div className="space-y-1">
+                          <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-[#6B6A65]">
+                            {language === "en" ? "Chats" : "ประวัติแชท"}
+                          </div>
+                          {unpinnedChats.map(renderChatRow)}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Bottom Settings & Account Navigation */}
+                <div className="p-3 border-t border-[#ECEAE3] space-y-1 shrink-0 bg-[#F5F3EC]/70">
+                  <button
+                    type="button"
+                    id="sidebar-personas-btn"
+                    onClick={() => {
+                      setIsOpen(false);
+                      onOpenPersonaModal();
+                    }}
+                    className="w-full flex items-center gap-3.5 px-3 py-2 rounded-xl text-sm font-medium text-[#1F1E1D] hover:bg-[#EFECE4] transition-colors cursor-pointer text-left"
+                  >
+                    <UserCog className="w-4 h-4 text-[#1F1E1D] shrink-0" />
+                    <span>{language === "en" ? "Personas" : "บุคลิก"}</span>
                   </button>
 
                   <button
                     type="button"
-                    id="sidebar-search-chats-btn"
-                    onClick={() => setIsOpen(false)}
-                    className="w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-[15px] font-medium text-[#1F1E1D] hover:bg-[#F0EEE6] transition-colors cursor-pointer text-left"
+                    id="sidebar-api-key-btn"
+                    onClick={() => {
+                      setIsOpen(false);
+                      onOpenApiKeyModal();
+                    }}
+                    className="w-full flex items-center gap-3.5 px-3 py-2 rounded-xl text-sm font-medium text-[#1F1E1D] hover:bg-[#EFECE4] transition-colors cursor-pointer text-left"
                   >
-                    <Search className="w-4 h-4 text-[#1F1E1D] shrink-0" />
-                    <span>{language === "en" ? "Search chats" : "Search chats"}</span>
+                    <Key className="w-4 h-4 text-[#1F1E1D] shrink-0" />
+                    <span>Gemini API Key</span>
                   </button>
 
-                  <div className="pt-2 mt-2 border-t border-[#ECEAE3] space-y-1">
-                    <button
-                      type="button"
-                      id="sidebar-personas-btn"
-                      onClick={() => {
-                        setIsOpen(false);
-                        onOpenPersonaModal();
-                      }}
-                      className="w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-[15px] font-medium text-[#1F1E1D] hover:bg-[#F0EEE6] transition-colors cursor-pointer text-left"
-                    >
-                      <UserCog className="w-4 h-4 text-[#1F1E1D] shrink-0" />
-                      <span>{language === "en" ? "Personas" : "บุคลิก"}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      id="sidebar-api-key-btn"
-                      onClick={() => {
-                        setIsOpen(false);
-                        onOpenApiKeyModal();
-                      }}
-                      className="w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-[15px] font-medium text-[#1F1E1D] hover:bg-[#F0EEE6] transition-colors cursor-pointer text-left"
-                    >
-                      <Key className="w-4 h-4 text-[#1F1E1D] shrink-0" />
-                      <span>Gemini API Key</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      id="menu-send-feedback-btn"
-                      onClick={() => {
-                        setIsOpen(false);
-                        onOpenFeedback();
-                      }}
-                      className="w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-[15px] font-medium text-[#1F1E1D] hover:bg-[#F0EEE6] transition-colors cursor-pointer text-left"
-                    >
-                      <MessageSquare className="w-4 h-4 text-[#1F1E1D] shrink-0" />
-                      <span>{language === "en" ? "Send Feedback" : "ส่งคำแนะนำ"}</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    id="menu-send-feedback-btn"
+                    onClick={() => {
+                      setIsOpen(false);
+                      onOpenFeedback();
+                    }}
+                    className="w-full flex items-center gap-3.5 px-3 py-2 rounded-xl text-sm font-medium text-[#1F1E1D] hover:bg-[#EFECE4] transition-colors cursor-pointer text-left"
+                  >
+                    <MessageSquare className="w-4 h-4 text-[#1F1E1D] shrink-0" />
+                    <span>{language === "en" ? "Send Feedback" : "ส่งคำแนะนำ"}</span>
+                  </button>
 
                   {user && (
-                    <div className="pt-2 mt-2 border-t border-[#ECEAE3] space-y-1">
-                      <div className="px-3 py-1.5 text-xs text-[#6B6A65] truncate">
+                    <div className="pt-2 mt-1 border-t border-[#ECEAE3] space-y-1">
+                      <div className="px-3 py-1 text-xs text-[#6B6A65] truncate">
                         {user.displayName || user.email}
                       </div>
                       <button
@@ -464,14 +644,14 @@ export function Header({
                           setIsOpen(false);
                           signOutUser();
                         }}
-                        className="w-full flex items-center gap-3.5 px-3 py-2.5 rounded-xl text-[15px] font-medium text-[#1F1E1D] hover:bg-[#F0EEE6] transition-colors cursor-pointer text-left"
+                        className="w-full flex items-center gap-3.5 px-3 py-2 rounded-xl text-sm font-medium text-[#1F1E1D] hover:bg-[#EFECE4] transition-colors cursor-pointer text-left"
                       >
                         <LogOut className="w-4 h-4 text-[#1F1E1D] shrink-0" />
                         <span>{language === "en" ? "Sign out" : "ออกจากระบบ"}</span>
                       </button>
                     </div>
                   )}
-                </nav>
+                </div>
               </motion.aside>
             </div>
           </div>

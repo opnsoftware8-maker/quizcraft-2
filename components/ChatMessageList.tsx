@@ -12,7 +12,12 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { DataTableCard } from "@/components/DataTableCard";
+import { DataTableModal } from "@/components/DataTableModal";
+import { PersonaAvatar } from "@/components/PersonaAvatarIcon";
+import { AiPersona } from "@/lib/firestore-personas";
 import { useLanguage } from "@/lib/language-context";
+import { StructuredTableData, tableToTsv } from "@/lib/structured-table";
 
 export interface ChatAttachmentMeta {
   id: string;
@@ -27,6 +32,9 @@ export interface ChatMessage {
   content: string;
   apiContent?: string;
   attachments?: ChatAttachmentMeta[];
+  tables?: StructuredTableData[];
+  personaId?: string;
+  personaName?: string;
   status: "streaming" | "done" | "error";
   feedback: "up" | "down" | null;
 }
@@ -35,6 +43,8 @@ interface ChatMessageListProps {
   messages: ChatMessage[];
   onRetry: (aiMessageId: string) => void;
   onFeedback: (aiMessageId: string, vote: "up" | "down") => void;
+  personas?: AiPersona[];
+  activePersona?: AiPersona | null;
 }
 
 function TypingIndicator() {
@@ -61,6 +71,8 @@ export function ChatMessageList({
   messages,
   onRetry,
   onFeedback,
+  personas = [],
+  activePersona = null,
 }: ChatMessageListProps) {
   const { language } = useLanguage();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -68,6 +80,9 @@ export function ChatMessageList({
   const shouldAutoScrollRef = useRef<boolean>(true);
   const prevMessageCountRef = useRef<number>(messages.length);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [expandedTable, setExpandedTable] = useState<StructuredTableData | null>(
+    null
+  );
 
   const handleScroll = () => {
     const el = scrollContainerRef.current;
@@ -92,13 +107,23 @@ export function ChatMessageList({
     }
   }, [messages]);
 
-  const handleCopy = async (id: string, text: string) => {
+  const handleCopy = async (msg: ChatMessage) => {
+    const parts: string[] = [];
+    if (msg.content.trim()) {
+      parts.push(msg.content.trim());
+    }
+    if (msg.tables && msg.tables.length > 0) {
+      for (const tbl of msg.tables) {
+        parts.push(`${tbl.title}\n${tableToTsv(tbl)}`);
+      }
+    }
+    const text = parts.join("\n\n");
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
-      setCopiedId(id);
+      setCopiedId(msg.id);
       setTimeout(() => {
-        setCopiedId((current) => (current === id ? null : current));
+        setCopiedId((current) => (current === msg.id ? null : current));
       }, 1800);
     } catch {
       // ignore clipboard failures
@@ -159,17 +184,53 @@ export function ChatMessageList({
             );
           }
 
+          const hasTables = Boolean(msg.tables && msg.tables.length > 0);
           const isWaitingFirstChunk =
-            msg.status === "streaming" && msg.content.length === 0;
+            msg.status === "streaming" && msg.content.length === 0 && !hasTables;
           const isCopied = copiedId === msg.id;
+
+          let avatarImage: string | undefined;
+          let avatarAlt = "AI";
+          if (msg.personaId !== undefined) {
+            if (msg.personaId === "") {
+              avatarImage = "";
+              avatarAlt = language === "en" ? "Default" : "เริ่มต้น";
+            } else {
+              const matched = personas.find((p) => p.id === msg.personaId);
+              avatarImage = matched?.profileImage || "";
+              avatarAlt = matched?.name || msg.personaName || "AI";
+            }
+          } else {
+            avatarImage = activePersona?.profileImage || "";
+            avatarAlt = activePersona?.name || "AI";
+          }
 
           return (
             <div key={msg.id} className="flex flex-col items-start w-full">
+              {/* Persona Profile Avatar above AI response bubble */}
+              <div className="mb-1.5 flex items-center">
+                <PersonaAvatar
+                  profileImage={avatarImage}
+                  alt={avatarAlt}
+                  sizeClass="w-8 h-8"
+                />
+              </div>
+
               {isWaitingFirstChunk ? (
                 <TypingIndicator />
               ) : (
                 <div className="w-full">
-                  <MarkdownRenderer content={msg.content} />
+                  {msg.content.trim().length > 0 && (
+                    <MarkdownRenderer content={msg.content} />
+                  )}
+                  {msg.tables &&
+                    msg.tables.map((tbl) => (
+                      <DataTableCard
+                        key={tbl.id}
+                        table={tbl}
+                        onExpand={setExpandedTable}
+                      />
+                    ))}
                 </div>
               )}
 
@@ -179,7 +240,7 @@ export function ChatMessageList({
                   {/* 1. Copy */}
                   <button
                     type="button"
-                    onClick={() => handleCopy(msg.id, msg.content)}
+                    onClick={() => handleCopy(msg)}
                     className={actionBtnBase}
                     aria-label={language === "en" ? "Copy response" : "คัดลอกคำตอบ"}
                     title={language === "en" ? "Copy" : "คัดลอก"}
@@ -252,6 +313,11 @@ export function ChatMessageList({
 
         <div ref={bottomAnchorRef} className="h-1 shrink-0" />
       </div>
+
+      <DataTableModal
+        table={expandedTable}
+        onClose={() => setExpandedTable(null)}
+      />
     </div>
   );
 }

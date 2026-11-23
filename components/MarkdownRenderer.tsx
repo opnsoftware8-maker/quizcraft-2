@@ -8,7 +8,158 @@ interface MarkdownRendererProps {
   content: string;
 }
 
+const TABLE_SEPARATOR_REGEX = /^\s*\|?(?:\s*:?-{2,}:?\s*\|)+\s*:?-{2,}:?\s*\|?\s*$/;
+const TABLE_ROW_REGEX = /^\s*\|.+\|\s*$/;
+
+function countPipeColumns(line: string): number {
+  const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  if (!trimmed) return 0;
+  return trimmed.split("|").length;
+}
+
+function isMarkdownTableBlock(lines: string[]): boolean {
+  const nonEmpty = lines.map((l) => l.trim()).filter(Boolean);
+  if (nonEmpty.length < 2) return false;
+  if (!nonEmpty[0].includes("|")) return false;
+  if (!TABLE_SEPARATOR_REGEX.test(nonEmpty[1])) return false;
+  return nonEmpty.slice(2).every((line) => line.includes("|"));
+}
+
+/**
+ * Normalizes AI-generated Markdown so GFM comparison tables always parse reliably:
+ * 1. Unwraps fenced code blocks when the AI accidentally puts a Markdown table inside ```markdown ... ```.
+ * 2. Ensures blank lines before and after every GFM table outside real code blocks.
+ * 3. Aligns separator column count with the header column count if needed.
+ */
+function normalizeMarkdownTables(raw: string): string {
+  if (!raw) return "";
+  const lines = raw.replace(/\r\n/g, "\n").split("\n");
+
+  // Step 1: Unwrap fenced code blocks that purely contain a Markdown table
+  const unwrappedLines: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const fenceMatch = lines[i].match(/^\s*```([a-zA-Z0-9_-]*)\s*$/);
+    if (fenceMatch) {
+      const lang = (fenceMatch[1] || "").toLowerCase();
+      let closeIdx = i + 1;
+      while (closeIdx < lines.length && !/^\s*```\s*$/.test(lines[closeIdx])) {
+        closeIdx++;
+      }
+      if (
+        closeIdx < lines.length &&
+        (lang === "" || lang === "markdown" || lang === "md" || lang === "text")
+      ) {
+        const inner = lines.slice(i + 1, closeIdx);
+        if (isMarkdownTableBlock(inner)) {
+          unwrappedLines.push("", ...inner, "");
+          i = closeIdx + 1;
+          continue;
+        }
+      }
+    }
+    unwrappedLines.push(lines[i]);
+    i++;
+  }
+
+  // Step 2: Ensure blank lines around GFM tables outside real code fences
+  const result: string[] = [];
+  let inCodeFence = false;
+  let idx = 0;
+
+  while (idx < unwrappedLines.length) {
+    const line = unwrappedLines[idx];
+
+    if (/^\s*```/.test(line)) {
+      inCodeFence = !inCodeFence;
+      result.push(line);
+      idx++;
+      continue;
+    }
+
+    if (
+      !inCodeFence &&
+      idx + 1 < unwrappedLines.length &&
+      (TABLE_ROW_REGEX.test(line) || line.includes("|")) &&
+      TABLE_SEPARATOR_REGEX.test(unwrappedLines[idx + 1])
+    ) {
+      const headerCols = countPipeColumns(line);
+      let sepLine = unwrappedLines[idx + 1].trim();
+      if (!sepLine.startsWith("|")) sepLine = `| ${sepLine}`;
+      if (!sepLine.endsWith("|")) sepLine = `${sepLine} |`;
+
+      const sepCols = countPipeColumns(sepLine);
+      if (headerCols > 1 && sepCols !== headerCols) {
+        sepLine = `| ${Array.from({ length: headerCols }, () => "---").join(" | ")} |`;
+      }
+
+      if (result.length > 0 && result[result.length - 1].trim() !== "") {
+        result.push("");
+      }
+
+      let normalizedHeader = line.trim();
+      if (!normalizedHeader.startsWith("|")) normalizedHeader = `| ${normalizedHeader}`;
+      if (!normalizedHeader.endsWith("|")) normalizedHeader = `${normalizedHeader} |`;
+
+      result.push(normalizedHeader);
+      result.push(sepLine);
+      idx += 2;
+
+      while (
+        idx < unwrappedLines.length &&
+        unwrappedLines[idx].trim() !== "" &&
+        unwrappedLines[idx].includes("|") &&
+        !/^\s*```/.test(unwrappedLines[idx])
+      ) {
+        let row = unwrappedLines[idx].trim();
+        if (!row.startsWith("|")) row = `| ${row}`;
+        if (!row.endsWith("|")) row = `${row} |`;
+        result.push(row);
+        idx++;
+      }
+
+      if (idx < unwrappedLines.length && unwrappedLines[idx].trim() !== "") {
+        result.push("");
+      }
+      continue;
+    }
+
+    result.push(line);
+    idx++;
+  }
+
+  return result.join("\n");
+}
+
+/**
+ * Safely converts `<br>` / `<br/>` tags inside Markdown table cells into real React `<br />` elements
+ * without raw HTML injection.
+ */
+function renderCellChildrenWithBreaks(children: React.ReactNode): React.ReactNode {
+  return React.Children.map(children, (child, childIdx) => {
+    if (typeof child === "string") {
+      if (!/<br\s*\/?>/i.test(child)) return child;
+      const segments = child.split(/<br\s*\/?>/gi);
+      return segments.map((seg, segIdx) => (
+        <React.Fragment key={`seg-${childIdx}-${segIdx}`}>
+          {seg}
+          {segIdx < segments.length - 1 && <br />}
+        </React.Fragment>
+      ));
+    }
+    if (React.isValidElement<{ children?: React.ReactNode }>(child) && child.props?.children) {
+      return React.cloneElement(child, {
+        ...child.props,
+        children: renderCellChildrenWithBreaks(child.props.children),
+      });
+    }
+    return child;
+  });
+}
+
 export function MarkdownRenderer({ content }: MarkdownRendererProps) {
+  const normalizedContent = normalizeMarkdownTables(content);
+
   return (
     <div className="w-full text-[#1F1E1D] break-words">
       <ReactMarkdown
@@ -91,25 +242,40 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
             </code>
           ),
           table: ({ children }) => (
-            <div className="my-3.5 w-full overflow-x-auto rounded-xl border border-[#E5E3DC]">
-              <table className="w-full text-sm text-left border-collapse">
+            <div className="my-4 w-full overflow-x-auto rounded-2xl border border-[#E5E3DC] bg-white shadow-[0_1px_4px_rgba(31,30,29,0.03)]">
+              <table className="w-full min-w-full text-sm text-left border-collapse">
                 {children}
               </table>
             </div>
           ),
-          th: ({ children }) => (
-            <th className="bg-[#EFECE4] font-semibold px-3 py-2 border-b border-[#E5E3DC] text-[#1F1E1D]">
+          thead: ({ children }) => (
+            <thead className="bg-[#EFECE4] border-b border-[#E5E3DC]">
               {children}
+            </thead>
+          ),
+          tbody: ({ children }) => (
+            <tbody className="divide-y divide-[#ECEAE3] bg-white">
+              {children}
+            </tbody>
+          ),
+          tr: ({ children }) => (
+            <tr className="transition-colors hover:bg-[#FAF9F5]/80">
+              {children}
+            </tr>
+          ),
+          th: ({ children }) => (
+            <th className="px-3.5 py-2.5 font-semibold text-xs sm:text-sm text-[#1F1E1D] align-top min-w-[100px] border-r border-[#E5E3DC]/70 last:border-r-0">
+              {renderCellChildrenWithBreaks(children)}
             </th>
           ),
           td: ({ children }) => (
-            <td className="px-3 py-2 border-b border-[#ECEAE3] text-[#1F1E1D]">
-              {children}
+            <td className="px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed text-[#1F1E1D] align-top min-w-[100px] border-r border-[#ECEAE3]/70 last:border-r-0">
+              {renderCellChildrenWithBreaks(children)}
             </td>
           ),
         }}
       >
-        {content}
+        {normalizedContent}
       </ReactMarkdown>
     </div>
   );

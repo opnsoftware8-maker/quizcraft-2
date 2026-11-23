@@ -31,6 +31,7 @@ function ChatWorkspace({ userId }: { userId: string }) {
     userId,
     activePersona: personaState.activePersona
       ? {
+          id: personaState.activePersona.id,
           name: personaState.activePersona.name,
           description: personaState.activePersona.description,
         }
@@ -64,6 +65,14 @@ function ChatWorkspace({ userId }: { userId: string }) {
     core.handleReset();
   };
 
+  const handleSelectSavedChat = (chatId: string) => {
+    setSlideDirection(-1);
+    setActivePage("chat");
+    setChatInput("");
+    setAttachedHistoryItems([]);
+    chat.selectChat(chatId);
+  };
+
   const handleSendMessage = () => {
     const trimmed = chatInput.trim();
     if (
@@ -83,7 +92,7 @@ function ChatWorkspace({ userId }: { userId: string }) {
 
   return (
     <div className="h-dvh overflow-hidden flex flex-col bg-[#FAF9F5] text-[#1F1E1D]">
-      {/* Top Bar: Left Hamburger & Language Switcher + Persona Switcher + Right Two-Page Capsule (Chat | Learn) */}
+      {/* Top Bar: Left Hamburger & Quick New Chat & Language + Persona Switcher + Right Two-Page Capsule (Chat | Learn) */}
       <Header
         activePage={activePage}
         onChangePage={handleChangePage}
@@ -95,6 +104,11 @@ function ChatWorkspace({ userId }: { userId: string }) {
         activePersonaId={personaState.activePersonaId}
         activePersona={personaState.activePersona}
         onSelectPersona={personaState.selectPersona}
+        savedChats={chat.savedChats}
+        activeChatId={chat.activeChatId}
+        onSelectChat={handleSelectSavedChat}
+        onTogglePinChat={chat.togglePinChat}
+        onDeleteChat={chat.deleteChat}
       />
 
       {/* Two-Page Workspace with Smooth Directional Slide */}
@@ -117,6 +131,8 @@ function ChatWorkspace({ userId }: { userId: string }) {
                   messages={chat.messages}
                   onRetry={chat.retryMessage}
                   onFeedback={chat.toggleFeedback}
+                  personas={personaState.personas}
+                  activePersona={personaState.activePersona}
                 />
               )}
 
