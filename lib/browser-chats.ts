@@ -1,4 +1,4 @@
-import { ChatMessage, ChatAttachmentMeta } from "@/components/ChatMessageList";
+import type { ChatMessage, ChatAttachmentMeta } from "@/components/ChatMessageList";
 import { sanitizeStructuredTables } from "@/lib/structured-table";
 import { sanitizeMathCanvases } from "@/lib/math-canvas";
 

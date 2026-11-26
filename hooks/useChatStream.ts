@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { ChatMessage } from "@/components/ChatMessageList";
+import type { ChatMessage, ThinkingStage } from "@/components/ChatMessageList";
+import type { ChatMode } from "@/components/Header";
 import { getCustomApiHeaders } from "@/lib/custom-key";
 import { Language } from "@/lib/i18n";
 import {
@@ -55,6 +56,32 @@ function formatAttachmentsForApi(
     .join("\n\n");
 }
 
+const VALID_THINKING_STAGES = new Set<ThinkingStage>([
+  "analyzing",
+  "thinking",
+  "calculating",
+  "building_table",
+  "drawing_graph",
+  "composing",
+]);
+
+const graphemeSegmenter: { segment: (input: string) => Iterable<{ segment: string }> } | null =
+  typeof Intl !== "undefined" && typeof (Intl as any).Segmenter === "function"
+    ? new (Intl as any).Segmenter("th", { granularity: "grapheme" })
+    : null;
+
+function splitGraphemes(input: string): string[] {
+  if (!input) return [];
+  if (graphemeSegmenter) {
+    const out: string[] = [];
+    for (const seg of graphemeSegmenter.segment(input)) {
+      out.push(seg.segment);
+    }
+    return out;
+  }
+  return Array.from(input);
+}
+
 interface ActivePersonaOption {
   id: string;
   name: string;
@@ -66,6 +93,7 @@ interface UseChatStreamOptions {
   language: Language;
   userId?: string | null;
   activePersona?: ActivePersonaOption | null;
+  chatMode?: ChatMode;
 }
 
 export function useChatStream({
@@ -73,6 +101,7 @@ export function useChatStream({
   language,
   userId,
   activePersona = null,
+  chatMode = "tutor",
 }: UseChatStreamOptions) {
   const storageOwnerId = userId || "local";
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -87,6 +116,7 @@ export function useChatStream({
   const activeChatIdRef = useRef<string | null>(null);
   const savedChatsRef = useRef<SavedChatSession[]>(savedChats);
   const activePersonaRef = useRef<ActivePersonaOption | null>(activePersona);
+  const chatModeRef = useRef<ChatMode>(chatMode);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -99,6 +129,10 @@ export function useChatStream({
   useEffect(() => {
     activePersonaRef.current = activePersona;
   }, [activePersona]);
+
+  useEffect(() => {
+    chatModeRef.current = chatMode;
+  }, [chatMode]);
 
   useEffect(() => {
     return () => {
@@ -172,11 +206,53 @@ export function useChatStream({
 
       setIsStreaming(true);
 
-      let pendingQueue = "";
+      let pendingGraphemes: string[] = [];
+      let readOffset = 0;
       let streamFinished = false;
       let accumulatedText = "";
       let accumulatedTables: StructuredTableData[] = [];
       let accumulatedCanvases: MathCanvasData[] = [];
+      let currentStage: ThinkingStage = "analyzing";
+      let hasServerStageOrOutput = false;
+      let stageTimer1: number | null = null;
+      let stageTimer2: number | null = null;
+
+      const clearStageTimers = () => {
+        if (stageTimer1 !== null) {
+          window.clearTimeout(stageTimer1);
+          stageTimer1 = null;
+        }
+        if (stageTimer2 !== null) {
+          window.clearTimeout(stageTimer2);
+          stageTimer2 = null;
+        }
+      };
+
+      const updateTargetStage = (stage: ThinkingStage) => {
+        if (currentStage === stage) return;
+        currentStage = stage;
+        setMessages((prev) => {
+          const next = prev.map((m) =>
+            m.id === targetAiId && m.status === "streaming"
+              ? { ...m, thinkingStage: stage }
+              : m
+          );
+          messagesRef.current = next;
+          return next;
+        });
+      };
+
+      stageTimer1 = window.setTimeout(() => {
+        if (!hasServerStageOrOutput && !controller.signal.aborted) {
+          updateTargetStage("thinking");
+        }
+      }, 950);
+
+      stageTimer2 = window.setTimeout(() => {
+        if (!hasServerStageOrOutput && !controller.signal.aborted) {
+          updateTargetStage("composing");
+        }
+      }, 2600);
 
       const updateTargetContent = (
         content: string,
@@ -189,6 +265,7 @@ export function useChatStream({
                   ...m,
                   content,
                   status,
+                  thinkingStage: status === "streaming" ? currentStage : undefined,
                   ...(accumulatedTables.length > 0
                     ? { tables: accumulatedTables }
                     : {}),
@@ -207,7 +284,9 @@ export function useChatStream({
         accumulatedTables = [...accumulatedTables, table];
         setMessages((prev) => {
           const next = prev.map((m) =>
-            m.id === targetAiId ? { ...m, tables: accumulatedTables } : m
+            m.id === targetAiId
+              ? { ...m, tables: accumulatedTables, thinkingStage: currentStage }
+              : m
           );
           messagesRef.current = next;
           return next;
@@ -218,7 +297,9 @@ export function useChatStream({
         accumulatedCanvases = [...accumulatedCanvases, canvas];
         setMessages((prev) => {
           const next = prev.map((m) =>
-            m.id === targetAiId ? { ...m, canvases: accumulatedCanvases } : m
+            m.id === targetAiId
+              ? { ...m, canvases: accumulatedCanvases, thinkingStage: currentStage }
+              : m
           );
           messagesRef.current = next;
           return next;
@@ -226,29 +307,66 @@ export function useChatStream({
       };
 
       const dripPromise = new Promise<void>((resolve) => {
-        const timer = setInterval(() => {
+        let rafId: number | null = null;
+        let lastFrameTs = performance.now();
+        let lastCommitTs = performance.now();
+        let currentRate = 56; // graphemes per second (smoothly eased)
+        let carry = 0;
+
+        const step = (now: number) => {
           if (controller.signal.aborted) {
-            clearInterval(timer);
+            if (rafId !== null) cancelAnimationFrame(rafId);
+            clearStageTimers();
             resolve();
             return;
           }
 
-          if (pendingQueue.length > 0) {
-            const stepSize =
-              pendingQueue.length > 180
-                ? Math.ceil(pendingQueue.length / 18)
-                : pendingQueue.length > 40
-                ? 4
-                : 2;
-            const slice = pendingQueue.slice(0, stepSize);
-            pendingQueue = pendingQueue.slice(stepSize);
-            accumulatedText += slice;
-            updateTargetContent(accumulatedText, "streaming");
-          } else if (streamFinished) {
-            clearInterval(timer);
-            resolve();
+          const dt = Math.min(0.05, Math.max(0.004, (now - lastFrameTs) / 1000));
+          lastFrameTs = now;
+
+          const backlog = pendingGraphemes.length - readOffset;
+
+          if (backlog > 0) {
+            const targetRate = streamFinished
+              ? Math.max(105, backlog * 2.8)
+              : 54 + Math.min(240, backlog * 0.68);
+            currentRate += (targetRate - currentRate) * Math.min(1, dt * 7);
+            carry += currentRate * dt;
+
+            const shouldCommit =
+              now - lastCommitTs >= 30 || (streamFinished && carry >= backlog);
+
+            if (shouldCommit && carry >= 1) {
+              const takeCount = Math.min(backlog, Math.floor(carry));
+              if (takeCount > 0) {
+                carry -= takeCount;
+                const sliceText = pendingGraphemes
+                  .slice(readOffset, readOffset + takeCount)
+                  .join("");
+                readOffset += takeCount;
+
+                if (readOffset > 256) {
+                  pendingGraphemes = pendingGraphemes.slice(readOffset);
+                  readOffset = 0;
+                }
+
+                accumulatedText += sliceText;
+                lastCommitTs = now;
+                updateTargetContent(accumulatedText, "streaming");
+              }
+            }
           }
-        }, 16);
+
+          if (streamFinished && pendingGraphemes.length - readOffset === 0) {
+            clearStageTimers();
+            resolve();
+            return;
+          }
+
+          rafId = requestAnimationFrame(step);
+        };
+
+        rafId = requestAnimationFrame(step);
       });
 
       try {
@@ -262,6 +380,7 @@ export function useChatStream({
           body: JSON.stringify({
             messages: conversationHistory,
             language,
+            chatMode: chatModeRef.current,
             customApiKey: customApiKey || undefined,
             persona: currentPersona
               ? {
@@ -327,16 +446,33 @@ export function useChatStream({
                 if (parsed?.error) {
                   throw new Error(parsed.error);
                 }
+                if (
+                  typeof parsed?.status === "string" &&
+                  VALID_THINKING_STAGES.has(parsed.status as ThinkingStage)
+                ) {
+                  hasServerStageOrOutput = true;
+                  clearStageTimers();
+                  updateTargetStage(parsed.status as ThinkingStage);
+                }
                 if (typeof parsed?.chunk === "string" && parsed.chunk.length > 0) {
-                  pendingQueue += parsed.chunk;
+                  hasServerStageOrOutput = true;
+                  clearStageTimers();
+                  const graphemes = splitGraphemes(parsed.chunk);
+                  if (graphemes.length > 0) {
+                    pendingGraphemes.push(...graphemes);
+                  }
                 }
                 if (parsed?.table) {
+                  hasServerStageOrOutput = true;
+                  clearStageTimers();
                   const validTables = sanitizeStructuredTables([parsed.table]);
                   if (validTables && validTables.length > 0) {
                     appendTableToTarget(validTables[0]);
                   }
                 }
                 if (parsed?.canvas) {
+                  hasServerStageOrOutput = true;
+                  clearStageTimers();
                   const validCanvases = sanitizeMathCanvases([parsed.canvas]);
                   if (validCanvases && validCanvases.length > 0) {
                     appendCanvasToTarget(validCanvases[0]);
@@ -423,6 +559,7 @@ export function useChatStream({
           }
         }
       } catch (err: any) {
+        clearStageTimers();
         streamFinished = true;
         if (err?.name === "AbortError") {
           return;
@@ -448,6 +585,7 @@ export function useChatStream({
           );
         }
       } finally {
+        clearStageTimers();
         if (abortControllerRef.current === controller) {
           abortControllerRef.current = null;
           setIsStreaming(false);
@@ -520,6 +658,7 @@ export function useChatStream({
         content: "",
         personaId: currentPersona ? currentPersona.id : "",
         personaName: currentPersona ? currentPersona.name : "",
+        thinkingStage: "analyzing",
         status: "streaming",
         feedback: null,
       };
@@ -668,6 +807,7 @@ export function useChatStream({
                 canvases: undefined,
                 personaId: currentPersona ? currentPersona.id : "",
                 personaName: currentPersona ? currentPersona.name : "",
+                thinkingStage: "analyzing" as const,
                 status: "streaming" as const,
                 feedback: null,
               }

@@ -10,7 +10,7 @@ interface MathLatexLabelProps {
   className?: string;
 }
 
-export function MathLatexLabel({
+export const MathLatexLabel = React.memo(function MathLatexLabel({
   content,
   isLatex = false,
   displayMode = false,
@@ -39,4 +39,4 @@ export function MathLatexLabel({
   }
 
   return <span ref={containerRef} className={className} />;
-}
+});

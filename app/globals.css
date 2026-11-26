@@ -58,6 +58,54 @@
   animation: cursorBlinkAnimation 0.8s infinite steps(2, start);
 }
 
+@keyframes streamBlockReveal {
+  0% {
+    opacity: 0.18;
+    transform: translateY(3px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.streaming-markdown > p,
+.streaming-markdown > h1,
+.streaming-markdown > h2,
+.streaming-markdown > h3,
+.streaming-markdown > h4,
+.streaming-markdown > blockquote,
+.streaming-markdown > pre,
+.streaming-markdown > ul > li,
+.streaming-markdown > ol > li {
+  animation: streamBlockReveal 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes thinkingShimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+.thinking-shimmer-text {
+  background: linear-gradient(
+    90deg,
+    #6B6A65 0%,
+    #6B6A65 36%,
+    #1F1E1D 50%,
+    #6B6A65 64%,
+    #6B6A65 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinkingShimmer 2s linear infinite;
+}
+
 /* Minimalist Modern Button & Card Utilities */
 .quizlet-btn-primary {
   background-color: #0F172A;

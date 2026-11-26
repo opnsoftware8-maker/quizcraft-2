@@ -15,9 +15,8 @@ import {
   MathCanvasData,
   MathCurvePoint,
   MathGridMode,
-  SampledPoint,
-  sampleMathFunction,
 } from "@/lib/math-canvas";
+import { SampledPoint, sampleMathFunction } from "@/lib/math-canvas-sampler";
 import { MathLatexLabel } from "@/components/MathLatexLabel";
 import { useLanguage } from "@/lib/language-context";
 

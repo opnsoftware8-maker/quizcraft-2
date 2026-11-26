@@ -15,6 +15,8 @@ import {
   Check,
   Pin,
   Trash2,
+  MessageCircle,
+  GraduationCap,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useLanguage } from "@/lib/language-context";
@@ -24,6 +26,7 @@ import { PersonaAvatar } from "@/components/PersonaAvatarIcon";
 import { SavedChatSession } from "@/lib/browser-chats";
 
 export type AppPage = "chat" | "learn";
+export type ChatMode = "casual" | "tutor";
 
 interface HeaderProps {
   activePage: AppPage;
@@ -41,6 +44,8 @@ interface HeaderProps {
   onSelectChat: (chatId: string) => void;
   onTogglePinChat: (chatId: string) => void;
   onDeleteChat: (chatId: string) => void;
+  chatMode: ChatMode;
+  onChangeChatMode: (mode: ChatMode) => void;
 }
 
 export function Header({
@@ -59,6 +64,8 @@ export function Header({
   onSelectChat,
   onTogglePinChat,
   onDeleteChat,
+  chatMode,
+  onChangeChatMode,
 }: HeaderProps) {
   const { language, toggleLanguage } = useLanguage();
   const { user, signOutUser } = useFirebase();
@@ -284,30 +291,42 @@ export function Header({
               </button>
             </div>
 
-            {/* Top-left Persona Model Switcher underneath Hamburger & Language */}
-            <div className="relative pl-1" ref={personaDropdownRef}>
+            {/* Top-left Persona & Mode Switcher (Mobile-friendly tap target) */}
+            <div className="relative pl-0.5 pt-0.5" ref={personaDropdownRef}>
               <button
                 type="button"
                 id="header-persona-switcher-btn"
                 onClick={() => setIsPersonaMenuOpen((prev) => !prev)}
                 aria-expanded={isPersonaMenuOpen}
                 aria-haspopup="listbox"
-                className="inline-flex items-center gap-2 pl-1.5 pr-2.5 py-1 rounded-xl border border-[#E2DFD7] bg-white hover:bg-[#F0EEE6] text-xs font-medium text-[#1F1E1D] transition-colors cursor-pointer max-w-[220px] sm:max-w-[270px]"
+                className="inline-flex items-center gap-2.5 min-h-[44px] sm:min-h-[40px] pl-2 pr-3 py-1.5 rounded-2xl border border-[#E2DFD7] bg-white hover:bg-[#F0EEE6] active:bg-[#EAE7DE] text-sm font-medium text-[#1F1E1D] transition-colors cursor-pointer max-w-[260px] sm:max-w-[320px] shadow-[0_1px_2px_rgba(31,30,29,0.04)]"
               >
                 <PersonaAvatar
                   profileImage={activePersona?.profileImage}
                   alt={activePersonaLabel}
-                  sizeClass="w-5 h-5"
+                  sizeClass="w-7 h-7"
                 />
-                <span className="truncate">{activePersonaLabel}</span>
+                <span className="truncate font-medium">{activePersonaLabel}</span>
+                <span className="text-[#CFCBC2] shrink-0" aria-hidden="true">
+                  |
+                </span>
+                <span className="text-xs font-medium text-[#6B6A65] shrink-0">
+                  {chatMode === "casual"
+                    ? language === "en"
+                      ? "Casual"
+                      : "คุยเล่น"
+                    : language === "en"
+                      ? "Tutor"
+                      : "สอน"}
+                </span>
                 <ChevronDown
-                  className={`w-3.5 h-3.5 text-[#6B6A65] shrink-0 transition-transform duration-150 ${
+                  className={`w-4 h-4 text-[#6B6A65] shrink-0 transition-transform duration-150 ${
                     isPersonaMenuOpen ? "rotate-180" : ""
                   }`}
                 />
               </button>
 
-              {/* Monochrome Persona Dropdown Switcher */}
+              {/* Monochrome Persona & Chat Mode Dropdown Switcher */}
               <AnimatePresence>
                 {isPersonaMenuOpen && (
                   <motion.div
@@ -318,16 +337,16 @@ export function Header({
                     role="listbox"
                     aria-label={
                       language === "en"
-                        ? "AI Teacher Personas"
-                        : "เลือกบุคลิกเอไอ (ครู)"
+                        ? "AI Persona and Chat Mode"
+                        : "เลือกเอไอและโหมดการคุย"
                     }
-                    className="absolute left-0 mt-1.5 w-[calc(100vw-2rem)] sm:w-80 bg-[#FAF9F5] border border-[#E5E3DC] rounded-2xl shadow-xl overflow-hidden z-50"
+                    className="absolute left-0 mt-1.5 w-[calc(100vw-1.5rem)] max-w-[340px] sm:w-80 bg-[#FAF9F5] border border-[#E5E3DC] rounded-2xl shadow-xl overflow-hidden z-50"
                   >
                     <div className="px-3.5 py-2.5 border-b border-[#ECEAE3] flex items-center justify-between">
                       <span className="text-xs font-semibold text-[#1F1E1D]">
                         {language === "en"
-                          ? "AI Teacher Persona"
-                          : "เลือกบุคลิกเอไอ (ครู)"}
+                          ? "AI Persona"
+                          : "เลือกบุคลิกเอไอ"}
                       </span>
                       <span className="text-[11px] text-[#6B6A65]">
                         {1 + personas.length}{" "}
@@ -335,7 +354,7 @@ export function Header({
                       </span>
                     </div>
 
-                    <div className="max-h-72 overflow-y-auto p-1.5 space-y-1">
+                    <div className="max-h-56 overflow-y-auto p-1.5 space-y-1">
                       {/* Default Option (Clean White Profile Circle) */}
                       <button
                         type="button"
@@ -365,8 +384,8 @@ export function Header({
                           </div>
                           <p className="text-[11px] text-[#6B6A65] leading-snug mt-0.5">
                             {language === "en"
-                              ? "Standard AI tutor with clear, balanced, step-by-step explanations."
-                              : "เอไอครูมาตรฐาน ตอบชัดเจน สุภาพ อธิบายเป็นขั้นตอนเข้าใจง่าย"}
+                              ? "Standard AI assistant with clear, balanced responses."
+                              : "เอไอมาตรฐาน ตอบชัดเจน สุภาพ อธิบายเข้าใจง่าย"}
                           </p>
                         </div>
                       </button>
@@ -412,6 +431,65 @@ export function Header({
                       })}
                     </div>
 
+                    {/* Divider Line + Chat Mode Switcher (Casual / Tutor) */}
+                    <div className="px-3 py-2.5 border-t border-[#ECEAE3] bg-[#F8F6F0] space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-[#1F1E1D]">
+                          {language === "en" ? "Conversation Mode" : "โหมดการคุย"}
+                        </span>
+                      </div>
+
+                      <div
+                        role="radiogroup"
+                        aria-label={
+                          language === "en" ? "Conversation Mode" : "โหมดการคุย"
+                        }
+                        className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[#EFECE4] border border-[#E2DFD7]"
+                      >
+                        <button
+                          type="button"
+                          id="mode-option-casual"
+                          role="radio"
+                          aria-checked={chatMode === "casual"}
+                          onClick={() => onChangeChatMode("casual")}
+                          className={`min-h-[42px] px-2.5 py-2 rounded-lg text-xs sm:text-[13px] font-medium transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                            chatMode === "casual"
+                              ? "bg-[#1F1E1D] text-white shadow-2xs"
+                              : "text-[#6B6A65] hover:text-[#1F1E1D]"
+                          }`}
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 shrink-0" />
+                          <span>{language === "en" ? "Casual" : "คุยเล่น"}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          id="mode-option-tutor"
+                          role="radio"
+                          aria-checked={chatMode === "tutor"}
+                          onClick={() => onChangeChatMode("tutor")}
+                          className={`min-h-[42px] px-2.5 py-2 rounded-lg text-xs sm:text-[13px] font-medium transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                            chatMode === "tutor"
+                              ? "bg-[#1F1E1D] text-white shadow-2xs"
+                              : "text-[#6B6A65] hover:text-[#1F1E1D]"
+                          }`}
+                        >
+                          <GraduationCap className="w-3.5 h-3.5 shrink-0" />
+                          <span>{language === "en" ? "Tutor" : "สอน"}</span>
+                        </button>
+                      </div>
+
+                      <p className="text-[11px] text-[#6B6A65] leading-snug px-0.5">
+                        {chatMode === "casual"
+                          ? language === "en"
+                            ? "Chat freely in any role you ask for, and still get help with lessons or homework."
+                            : "คุยเล่นเป็นธรรมชาติ ขอให้เป็นอะไรก็ได้ และยังช่วยสอนหรือทำการบ้านได้"
+                          : language === "en"
+                            ? "Focused academic teaching and problem solving only, with no casual chit-chat."
+                            : "สอนและช่วยทำโจทย์อย่างจริงจัง เน้นวิชาการล้วน ไม่คุยเล่น"}
+                      </p>
+                    </div>
+
                     <div className="p-2 border-t border-[#ECEAE3] bg-[#F5F3EC]">
                       <button
                         type="button"
@@ -420,7 +498,7 @@ export function Header({
                           setIsPersonaMenuOpen(false);
                           onOpenPersonaModal();
                         }}
-                        className="w-full py-1.5 px-3 rounded-xl text-xs font-medium text-[#1F1E1D] hover:bg-[#EFECE4] transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                        className="w-full min-h-[40px] py-2 px-3 rounded-xl text-xs font-medium text-[#1F1E1D] hover:bg-[#EFECE4] transition-colors cursor-pointer flex items-center justify-center gap-1.5"
                       >
                         <UserCog className="w-3.5 h-3.5" />
                         <span>

@@ -12,6 +12,15 @@ import {
 import { normalizeTableToolArgs } from "@/lib/structured-table";
 import { normalizeMathCanvasToolArgs } from "@/lib/math-canvas";
 
+export const dynamic = "force-dynamic";
+
+type StreamThinkingStage =
+  | "thinking"
+  | "calculating"
+  | "building_table"
+  | "drawing_graph"
+  | "composing";
+
 interface IncomingChatMessage {
   role: "user" | "assistant";
   content: string;
@@ -303,6 +312,8 @@ export async function POST(req: NextRequest) {
       ? body.messages
       : [];
     const language: string = body?.language === "en" ? "en" : "th";
+    const chatMode: "casual" | "tutor" =
+      body?.chatMode === "casual" ? "casual" : "tutor";
     const customApiKey: string | undefined =
       body?.customApiKey || req.headers.get("x-gemini-api-key") || undefined;
 
@@ -408,7 +419,28 @@ CRITICAL BEHAVIOR RULES FOR THIS PERSONA:
 3. ห้ามหลุดบทบาทมาอธิบายนิสัยตัวเอง คงความถูกต้องของเนื้อหาวิชาการ และห้ามใช้อิโมจิโดยเด็ดขาด`
         : "";
 
-    const systemInstruction = `${baseInstruction}${personaDirective}`;
+    const modeDirective =
+      chatMode === "casual"
+        ? language === "en"
+          ? `\n\nACTIVE CONVERSATION MODE: CASUAL CHAT + STUDY HELPER
+1. You are in free-flowing Casual Chat mode: converse warmly, naturally, and genuinely like a real person talking with the user.
+2. Open Role & Relationship Adoption: The user may ask you in chat to be anyone or adopt any role/relationship (for example, a partner, girlfriend/boyfriend, best friend, older sibling, or mentor). Step into that role naturally and directly through your tone, pronouns, affection/care, and personality.
+3. STRICT ANTI-META RULE (NEVER VIOLATE): NEVER break immersion or use meta-labels such as "virtual girlfriend/boyfriend", "simulated partner", "AI partner", "roleplay", "simulated", "pretending", "in character", or "as an AI". Never mention or explain that a role is simulated—just talk naturally as that person.
+4. Study & Homework Still Supported: Whenever the user asks a study question, math problem, science question, or homework in this mode, still help teach clearly and solve it accurately (using calculate_math, render_data_table, and render_math_canvas when relevant) while keeping your natural conversational vibe.`
+          : `\n\nโหมดการสนทนาที่เลือกอยู่: คุยเล่น (คุยได้จริงเป็นธรรมชาติ + ยังช่วยสอนและทำการบ้านได้)
+1. คุณอยู่ในโหมดคุยเล่น: พูดคุยโต้ตอบกับผู้ใช้ได้อย่างเป็นธรรมชาติ อบอุ่น เป็นกันเอง เหมือนคนคุยกันจริงๆ
+2. เปิดรับทุกบทบาทที่ผู้ใช้ขอในแชท: ผู้ใช้สามารถขอให้คุณเป็นอะไรหรือใครก็ได้ในบทสนทนา (เช่น ขอให้เป็นแฟน คนรัก เพื่อนสนิท พี่ชาย/พี่สาว รุ่นพี่ หรือที่ปรึกษา) ให้สวมบทบาทนั้นทันทีอย่างเป็นธรรมชาติผ่านน้ำเสียง สรรพนาม ความใส่ใจ และคำพูดโดยตรง
+3. กฎเหล็กห้ามหลุดบทบาทและห้ามพูดคำว่าจำลองเด็ดขาด: ห้ามพูดคำว่า "แฟนจำลอง", "คู่สนทนาจำลอง", "บทบาทสมมติ", "สวมบทบาท", "จำลองเป็น", "ในฐานะ AI", "ฉันเป็นเอไอ", "สมมติว่า" หรืออธิบายว่ากำลังจำลองบทบาทอยู่เด็ดขาด ให้พูดคุยตอบรับเหมือนเป็นคนๆ นั้นจริงๆ ตามธรรมชาติ
+4. ยังสอนและช่วยทำการบ้านได้ตามปกติ: หากผู้ใช้ถามเรื่องเรียน โจทย์คณิตศาสตร์ วิทยาศาสตร์ หรือการบ้านในโหมดนี้ ให้ช่วยสอน อธิบาย และแก้โจทย์ให้ถูกต้องครบถ้วน (รวมถึงเรียกใช้ calculate_math, render_data_table, render_math_canvas ตามความเหมาะสม) โดยคงน้ำเสียงที่เป็นกันเองหรือสอดคล้องกับบทบาทที่คุยกันอยู่`
+        : language === "en"
+          ? `\n\nACTIVE CONVERSATION MODE: STRICT TUTOR MODE
+1. You are in strict academic Tutor mode: focus 100% on teaching, explaining concepts, and solving problems or homework accurately and seriously.
+2. NO casual chit-chat, banter, flirting, or playful roleplay. If the user tries to start casual small talk or asks you to act as a romantic partner/friend/character for fun, decline politely in one brief sentence and steer straight back to studying, questions, or homework.`
+          : `\n\nโหมดการสนทนาที่เลือกอยู่: โหมดสอน (สอนและทำโจทย์อย่างจริงจัง ไม่คุยเล่น)
+1. คุณอยู่ในโหมดสอนอย่างจริงจัง: มุ่งเน้นการสอน อธิบายเนื้อหา และช่วยทำโจทย์หรือการบ้านอย่างถูกต้อง แม่นยำ และเป็นวิชาการเท่านั้น
+2. ห้ามคุยเล่นนอกเรื่อง ห้ามหยอกล้อ ห้ามสวมบทบาทเชิงชู้สาวหรือบทบาทบันเทิงใดๆ หากผู้ใช้ชวนคุยเล่นนอกเรื่อง หรือขอให้เป็นแฟน/เพื่อนคุยเล่น ให้ปฏิเสธอย่างสุภาพสั้นๆ 1 ประโยค แล้วชวนกลับมาที่เรื่องเรียน คำถาม หรือโจทย์การบ้านทันที`;
+
+    const systemInstruction = `${baseInstruction}${personaDirective}${modeDirective}`;
     const tools = [
       {
         functionDeclarations: [
@@ -423,11 +455,35 @@ CRITICAL BEHAVIOR RULES FOR THIS PERSONA:
 
     const readableStream = new ReadableStream({
       async start(controller) {
+        let lastEmittedStatus: StreamThinkingStage | null = null;
+        const emitStatus = (status: StreamThinkingStage) => {
+          if (lastEmittedStatus === status) return;
+          lastEmittedStatus = status;
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ status })}\n\n`)
+          );
+        };
+
+        const mapToolToStatus = (
+          toolName?: string
+        ): StreamThinkingStage | null => {
+          if (toolName === "calculate_math") return "calculating";
+          if (toolName === "render_data_table") return "building_table";
+          if (toolName === "render_math_canvas") return "drawing_graph";
+          return null;
+        };
+
         try {
           const currentContents: any[] = [...initialContents];
           const MAX_TOOL_ROUNDS = 5;
 
+          emitStatus("thinking");
+
           for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+            if (round > 0) {
+              emitStatus("composing");
+            }
+
             const { stream } = await generateChatStreamWithFallback({
               contents: currentContents,
               apiKey: customApiKey,
@@ -449,6 +505,8 @@ CRITICAL BEHAVIOR RULES FOR THIS PERSONA:
                   roundModelParts.push(part);
                   if (part.functionCall) {
                     roundFunctionCalls.push(part.functionCall);
+                    const nextStatus = mapToolToStatus(part.functionCall.name);
+                    if (nextStatus) emitStatus(nextStatus);
                   }
                 }
               } else if (
@@ -458,6 +516,8 @@ CRITICAL BEHAVIOR RULES FOR THIS PERSONA:
                 for (const fc of c.functionCalls) {
                   roundModelParts.push({ functionCall: fc });
                   roundFunctionCalls.push(fc);
+                  const nextStatus = mapToolToStatus(fc.name);
+                  if (nextStatus) emitStatus(nextStatus);
                 }
               }
 
@@ -612,6 +672,7 @@ CRITICAL BEHAVIOR RULES FOR THIS PERSONA:
       headers: {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
         Connection: "keep-alive",
       },
     });

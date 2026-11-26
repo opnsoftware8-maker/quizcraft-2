@@ -1,34 +1,74 @@
 "use client";
 
 import React, { useState } from "react";
+import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { Header, AppPage } from "@/components/Header";
+import { Header, AppPage, ChatMode } from "@/components/Header";
 import { ChatComposer } from "@/components/ChatComposer";
-import { ChatMessageList } from "@/components/ChatMessageList";
-import { LearningStudio } from "@/components/LearningStudio";
-import { ApiKeyModal } from "@/components/ApiKeyModal";
-import { PersonaModal } from "@/components/PersonaModal";
-import { StudyHistoryModal } from "@/components/StudyHistoryModal";
-import { FeedbackModal } from "@/components/FeedbackModal";
 import { LoginWelcomeView } from "@/components/LoginWelcomeView";
 import { useOpenSolverCore } from "@/hooks/useOpenSolverCore";
 import { useChatStream } from "@/hooks/useChatStream";
 import { usePersonas } from "@/hooks/usePersonas";
 import { useStudyHistory } from "@/hooks/useStudyHistory";
-import { StudyHistoryItem } from "@/lib/firestore-study-history";
+import type { StudyHistoryItem } from "@/lib/firestore-study-history";
 import { useLanguage } from "@/lib/language-context";
 import { useFirebase } from "@/lib/firebase-context";
+
+const ChatMessageList = dynamic(
+  () => import("@/components/ChatMessageList").then((m) => m.ChatMessageList),
+  { ssr: false }
+);
+const LearningStudio = dynamic(
+  () => import("@/components/LearningStudio").then((m) => m.LearningStudio),
+  { ssr: false }
+);
+const ApiKeyModal = dynamic(
+  () => import("@/components/ApiKeyModal").then((m) => m.ApiKeyModal),
+  { ssr: false }
+);
+const PersonaModal = dynamic(
+  () => import("@/components/PersonaModal").then((m) => m.PersonaModal),
+  { ssr: false }
+);
+const StudyHistoryModal = dynamic(
+  () => import("@/components/StudyHistoryModal").then((m) => m.StudyHistoryModal),
+  { ssr: false }
+);
+const FeedbackModal = dynamic(
+  () => import("@/components/FeedbackModal").then((m) => m.FeedbackModal),
+  { ssr: false }
+);
 
 function ChatWorkspace({ userId }: { userId: string }) {
   const { language } = useLanguage();
   const core = useOpenSolverCore();
   const personaState = usePersonas(userId);
   const historyState = useStudyHistory(userId);
+  const [chatMode, setChatMode] = useState<ChatMode>(() => {
+    if (typeof window === "undefined") return "tutor";
+    try {
+      const saved = window.localStorage.getItem("opensolver_chat_mode_v1");
+      return saved === "casual" ? "casual" : "tutor";
+    } catch {
+      return "tutor";
+    }
+  });
+
+  const handleChangeChatMode = (mode: ChatMode) => {
+    setChatMode(mode);
+    try {
+      window.localStorage.setItem("opensolver_chat_mode_v1", mode);
+    } catch {
+      // ignore storage errors
+    }
+  };
+
   const chat = useChatStream({
     customApiKey: core.customApiKey,
     language,
     userId,
+    chatMode,
     activePersona: personaState.activePersona
       ? {
           id: personaState.activePersona.id,
@@ -109,6 +149,8 @@ function ChatWorkspace({ userId }: { userId: string }) {
         onSelectChat={handleSelectSavedChat}
         onTogglePinChat={chat.togglePinChat}
         onDeleteChat={chat.deleteChat}
+        chatMode={chatMode}
+        onChangeChatMode={handleChangeChatMode}
       />
 
       {/* Two-Page Workspace with Smooth Directional Slide */}

@@ -7,7 +7,10 @@ import { MathLatexLabel } from "@/components/MathLatexLabel";
 
 interface MarkdownRendererProps {
   content: string;
+  isStreaming?: boolean;
 }
+
+const REMARK_PLUGINS = [remarkGfm];
 
 interface ExtractedMathEntry {
   latex: string;
@@ -290,15 +293,22 @@ function renderRichChildren(
   });
 }
 
-export function MarkdownRenderer({ content }: MarkdownRendererProps) {
+export const MarkdownRenderer = React.memo(function MarkdownRenderer({
+  content,
+  isStreaming = false,
+}: MarkdownRendererProps) {
   const { text: contentWithMathTokens, mathEntries } =
     extractMathPlaceholders(content);
   const normalizedContent = normalizeMarkdownTables(contentWithMathTokens);
 
   return (
-    <div className="w-full text-[#1F1E1D] break-words">
+    <div
+      className={`w-full text-[#1F1E1D] break-words ${
+        isStreaming ? "streaming-markdown" : ""
+      }`}
+    >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={REMARK_PLUGINS}
         components={{
           h1: ({ children }) => (
             <h1 className="text-2xl font-bold text-[#1F1E1D] mt-6 mb-3 first:mt-0 leading-snug tracking-tight">
@@ -418,4 +428,4 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
       </ReactMarkdown>
     </div>
   );
-}
+});
