@@ -239,7 +239,7 @@ export function MathCanvasView({
       }
       pinch={{ disabled: false }}
       doubleClick={{ mode: "reset" }}
-      onTransformed={(_, state) => setZoomScale(state.scale)}
+      onTransform={(_, state) => setZoomScale(state.scale)}
     >
       {({ zoomIn, zoomOut, resetTransform }) => (
         <div
