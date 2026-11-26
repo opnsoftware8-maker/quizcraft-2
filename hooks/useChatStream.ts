@@ -310,7 +310,7 @@ export function useChatStream({
         let rafId: number | null = null;
         let lastFrameTs = performance.now();
         let lastCommitTs = performance.now();
-        let currentRate = 56; // graphemes per second (smoothly eased)
+        let currentRate = 68; // graphemes per second (smoothly eased)
         let carry = 0;
 
         const step = (now: number) => {
@@ -328,13 +328,13 @@ export function useChatStream({
 
           if (backlog > 0) {
             const targetRate = streamFinished
-              ? Math.max(105, backlog * 2.8)
-              : 54 + Math.min(240, backlog * 0.68);
-            currentRate += (targetRate - currentRate) * Math.min(1, dt * 7);
+              ? Math.max(150, backlog * 4.2)
+              : 68 + Math.min(240, Math.sqrt(backlog) * 13.5);
+            currentRate += (targetRate - currentRate) * Math.min(1, dt * 8);
             carry += currentRate * dt;
 
             const shouldCommit =
-              now - lastCommitTs >= 30 || (streamFinished && carry >= backlog);
+              now - lastCommitTs >= 15 || (streamFinished && carry >= backlog);
 
             if (shouldCommit && carry >= 1) {
               const takeCount = Math.min(backlog, Math.floor(carry));

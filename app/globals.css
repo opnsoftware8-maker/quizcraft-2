@@ -3,6 +3,9 @@
 
 @layer base {
   html, body {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
     touch-action: pan-x pan-y;
     -ms-touch-action: pan-x pan-y;
     -webkit-text-size-adjust: 100%;
@@ -30,6 +33,11 @@
   display: none;
   width: 0;
   height: 0;
+}
+
+.chat-scroll-container {
+  overflow-anchor: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 @media print {
@@ -60,50 +68,110 @@
 
 @keyframes streamBlockReveal {
   0% {
-    opacity: 0.18;
-    transform: translateY(3px);
+    opacity: 0.72;
   }
   100% {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
-.streaming-markdown > p,
-.streaming-markdown > h1,
-.streaming-markdown > h2,
-.streaming-markdown > h3,
-.streaming-markdown > h4,
-.streaming-markdown > blockquote,
-.streaming-markdown > pre,
-.streaming-markdown > ul > li,
-.streaming-markdown > ol > li {
-  animation: streamBlockReveal 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+.streaming-markdown-tail > p,
+.streaming-markdown-tail > h1,
+.streaming-markdown-tail > h2,
+.streaming-markdown-tail > h3,
+.streaming-markdown-tail > h4,
+.streaming-markdown-tail > blockquote,
+.streaming-markdown-tail > pre,
+.streaming-markdown-tail > ul > li,
+.streaming-markdown-tail > ol > li {
+  animation: streamBlockReveal 0.14s ease-out both;
 }
 
-@keyframes thinkingShimmer {
+@keyframes thinkingRingPulse {
   0% {
-    background-position: 120% 0;
+    transform: scale(1);
+    opacity: 0.45;
   }
   100% {
-    background-position: -120% 0;
+    transform: scale(1.45);
+    opacity: 0;
   }
 }
 
-.thinking-shimmer-text {
-  background: linear-gradient(
-    90deg,
-    #6B6A65 0%,
-    #6B6A65 36%,
-    #1F1E1D 50%,
-    #6B6A65 64%,
-    #6B6A65 100%
-  );
-  background-size: 220% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: thinkingShimmer 2s linear infinite;
+.thinking-orbital-ring {
+  animation: thinkingRingPulse 1.5s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes thinkingDotWave {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.35;
+  }
+  50% {
+    transform: translate3d(0, -3px, 0);
+    opacity: 1;
+  }
+}
+
+.thinking-wave-dot {
+  animation: thinkingDotWave 0.96s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.thinking-wave-dot-1 {
+  animation-delay: 0ms;
+}
+
+.thinking-wave-dot-2 {
+  animation-delay: 140ms;
+}
+
+.thinking-wave-dot-3 {
+  animation-delay: 280ms;
+}
+
+@keyframes thinkingLabelBreath {
+  0%, 100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes thinkingStageSwap {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 3px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.thinking-stage-label {
+  color: #3D3C38;
+  animation:
+    thinkingStageSwap 0.16s ease-out both,
+    thinkingLabelBreath 1.8s ease-in-out 0.16s infinite;
+  will-change: transform, opacity;
+}
+
+.thinking-stage-icon {
+  animation: thinkingStageSwap 0.16s ease-out both;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-orbital-ring,
+  .thinking-wave-dot,
+  .thinking-stage-label,
+  .thinking-stage-icon,
+  .streaming-markdown-tail > * {
+    animation: none !important;
+  }
 }
 
 /* Minimalist Modern Button & Card Utilities */

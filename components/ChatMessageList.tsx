@@ -16,7 +16,6 @@ import {
   PenLine,
 } from "lucide-react";
 import dynamic from "next/dynamic";
-import { AnimatePresence, motion } from "motion/react";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { PersonaAvatar } from "@/components/PersonaAvatarIcon";
 
@@ -153,73 +152,44 @@ function ThinkingStatusIndicator({
   const { key, Icon, label } = getStageMeta(stage, language);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.22, ease: "easeOut" }}
-      className={`inline-flex items-center gap-2.5 rounded-2xl border border-[#E5E3DC] bg-white/85 px-3 py-2 ${
+    <div
+      className={`inline-flex items-center gap-2.5 rounded-2xl border border-[#E5E3DC] bg-white/90 px-3 py-2 ${
         compact ? "mt-2.5" : "my-1"
       }`}
       aria-live="polite"
       aria-label={label}
     >
-      {/* Pulsing orbital thinking icon */}
+      {/* Pure GPU-composited pulsing orbital thinking icon */}
       <div className="relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#EFECE4] text-[#1F1E1D]">
-        <motion.span
-          className="absolute inset-0 rounded-full border border-[#1F1E1D]/25"
-          animate={{ scale: [1, 1.42], opacity: [0.5, 0] }}
-          transition={{ duration: 1.5, repeat: Infinity, ease: "easeOut" }}
+        <span
+          aria-hidden="true"
+          className="thinking-orbital-ring pointer-events-none absolute inset-0 rounded-full border border-[#1F1E1D]/25"
         />
-        <AnimatePresence mode="wait">
-          <motion.span
-            key={key}
-            initial={{ opacity: 0, scale: 0.75 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.75 }}
-            transition={{ duration: 0.18 }}
-            className="flex items-center justify-center"
-          >
-            <Icon className="h-3.5 w-3.5 text-[#1F1E1D]" />
-          </motion.span>
-        </AnimatePresence>
+        <span
+          key={key}
+          className="thinking-stage-icon flex items-center justify-center"
+        >
+          <Icon className="h-3.5 w-3.5 text-[#1F1E1D]" />
+        </span>
       </div>
 
-      {/* Animated step phrase with shimmer */}
+      {/* Smooth stage label */}
       <div className="min-w-0 overflow-hidden">
-        <AnimatePresence mode="wait">
-          <motion.span
-            key={key}
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -5 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
-            className="block text-[13.5px] font-medium leading-snug thinking-shimmer-text"
-          >
-            {label}
-          </motion.span>
-        </AnimatePresence>
+        <span
+          key={key}
+          className="thinking-stage-label block text-[13.5px] font-medium leading-snug"
+        >
+          {label}
+        </span>
       </div>
 
-      {/* Live wave dots / ready-to-answer pulse */}
+      {/* Pure GPU-composited wave dots */}
       <div className="flex items-center gap-1 pl-0.5 shrink-0" aria-hidden="true">
-        {[0, 1, 2].map((index) => (
-          <motion.span
-            key={index}
-            className="h-1.5 w-1.5 rounded-full bg-[#6B6A65]"
-            animate={{
-              y: [0, -3, 0],
-              opacity: [0.35, 1, 0.35],
-            }}
-            transition={{
-              duration: 0.9,
-              repeat: Infinity,
-              delay: index * 0.14,
-              ease: "easeInOut",
-            }}
-          />
-        ))}
+        <span className="thinking-wave-dot thinking-wave-dot-1 h-1.5 w-1.5 rounded-full bg-[#6B6A65]" />
+        <span className="thinking-wave-dot thinking-wave-dot-2 h-1.5 w-1.5 rounded-full bg-[#6B6A65]" />
+        <span className="thinking-wave-dot thinking-wave-dot-3 h-1.5 w-1.5 rounded-full bg-[#6B6A65]" />
       </div>
-    </motion.div>
+    </div>
   );
 }
 
@@ -432,6 +402,7 @@ export function ChatMessageList({
   const scrollRafRef = useRef<number | null>(null);
   const shouldAutoScrollRef = useRef<boolean>(true);
   const prevMessageCountRef = useRef<number>(messages.length);
+  const lastScrollHeightRef = useRef<number>(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedTable, setExpandedTable] = useState<StructuredTableData | null>(
     null
@@ -444,7 +415,7 @@ export function ChatMessageList({
     const el = scrollContainerRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    shouldAutoScrollRef.current = distanceFromBottom < 140;
+    shouldAutoScrollRef.current = distanceFromBottom < 120;
   }, []);
 
   useEffect(() => {
@@ -465,10 +436,10 @@ export function ChatMessageList({
       scrollRafRef.current = null;
       const el = scrollContainerRef.current;
       if (!el) return;
-      if (isNewMessageAdded) {
-        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-      } else {
-        el.scrollTop = el.scrollHeight;
+      const nextHeight = el.scrollHeight;
+      if (isNewMessageAdded || nextHeight !== lastScrollHeightRef.current) {
+        lastScrollHeightRef.current = nextHeight;
+        el.scrollTop = nextHeight;
       }
     });
   }, [messages]);
@@ -513,7 +484,7 @@ export function ChatMessageList({
     <div
       ref={scrollContainerRef}
       onScroll={handleScroll}
-      className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-3 pb-4"
+      className="chat-scroll-container flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 pt-3 pb-4"
     >
       <div className="w-full max-w-3xl mx-auto flex flex-col gap-5">
         {messages.map((msg) => {

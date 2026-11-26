@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { Header, AppPage, ChatMode } from "@/components/Header";
 import { ChatComposer } from "@/components/ChatComposer";
+import { ChatMessageList } from "@/components/ChatMessageList";
 import { LoginWelcomeView } from "@/components/LoginWelcomeView";
 import { useOpenSolverCore } from "@/hooks/useOpenSolverCore";
 import { useChatStream } from "@/hooks/useChatStream";
@@ -15,10 +16,6 @@ import type { StudyHistoryItem } from "@/lib/firestore-study-history";
 import { useLanguage } from "@/lib/language-context";
 import { useFirebase } from "@/lib/firebase-context";
 
-const ChatMessageList = dynamic(
-  () => import("@/components/ChatMessageList").then((m) => m.ChatMessageList),
-  { ssr: false }
-);
 const LearningStudio = dynamic(
   () => import("@/components/LearningStudio").then((m) => m.LearningStudio),
   { ssr: false }
@@ -113,11 +110,24 @@ function ChatWorkspace({ userId }: { userId: string }) {
     chat.selectChat(chatId);
   };
 
-  const handleSendMessage = () => {
+  const { isStreaming: isChatStreaming, sendMessage: sendChatMessage } = chat;
+  const { setNotesText } = core;
+
+  const handleOpenStudyHistory = useCallback(() => {
+    setIsStudyHistoryModalOpen(true);
+  }, []);
+
+  const handleRemoveAttachedItem = useCallback((itemId: string) => {
+    setAttachedHistoryItems((prev) =>
+      prev.filter((item) => item.id !== itemId)
+    );
+  }, []);
+
+  const handleSendMessage = useCallback(() => {
     const trimmed = chatInput.trim();
     if (
       (!trimmed && attachedHistoryItems.length === 0) ||
-      chat.isStreaming
+      isChatStreaming
     ) {
       return;
     }
@@ -125,10 +135,16 @@ function ChatWorkspace({ userId }: { userId: string }) {
     setChatInput("");
     setAttachedHistoryItems([]);
     if (trimmed) {
-      core.setNotesText(trimmed);
+      setNotesText(trimmed);
     }
-    chat.sendMessage(trimmed, attachmentsToSend);
-  };
+    sendChatMessage(trimmed, attachmentsToSend);
+  }, [
+    attachedHistoryItems,
+    chatInput,
+    isChatStreaming,
+    sendChatMessage,
+    setNotesText,
+  ]);
 
   return (
     <div className="h-dvh overflow-hidden flex flex-col bg-[#FAF9F5] text-[#1F1E1D]">
@@ -164,34 +180,34 @@ function ChatWorkspace({ userId }: { userId: string }) {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: slideDirection * 28 }}
               transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="flex-1 flex flex-col justify-between min-h-0 overflow-hidden"
+              className="flex-1 flex flex-col min-h-0 overflow-hidden"
             >
-              {chat.messages.length === 0 ? (
-                <div className="flex-1" />
-              ) : (
-                <ChatMessageList
-                  messages={chat.messages}
-                  onRetry={chat.retryMessage}
-                  onFeedback={chat.toggleFeedback}
-                  personas={personaState.personas}
-                  activePersona={personaState.activePersona}
-                />
-              )}
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                {chat.messages.length === 0 ? (
+                  <div className="flex-1" aria-hidden="true" />
+                ) : (
+                  <ChatMessageList
+                    messages={chat.messages}
+                    onRetry={chat.retryMessage}
+                    onFeedback={chat.toggleFeedback}
+                    personas={personaState.personas}
+                    activePersona={personaState.activePersona}
+                  />
+                )}
+              </div>
 
-              {/* Bottom Chat Input Bar + "+" Popup Menu */}
-              <ChatComposer
-                value={chatInput}
-                onChange={setChatInput}
-                onSubmit={handleSendMessage}
-                isStreaming={chat.isStreaming}
-                attachedItems={attachedHistoryItems}
-                onOpenStudyHistory={() => setIsStudyHistoryModalOpen(true)}
-                onRemoveAttachedItem={(itemId) =>
-                  setAttachedHistoryItems((prev) =>
-                    prev.filter((item) => item.id !== itemId)
-                  )
-                }
-              />
+              {/* Bottom Chat Input Bar + "+" Popup Menu (always pinned to bottom) */}
+              <div className="shrink-0 w-full">
+                <ChatComposer
+                  value={chatInput}
+                  onChange={setChatInput}
+                  onSubmit={handleSendMessage}
+                  isStreaming={chat.isStreaming}
+                  attachedItems={attachedHistoryItems}
+                  onOpenStudyHistory={handleOpenStudyHistory}
+                  onRemoveAttachedItem={handleRemoveAttachedItem}
+                />
+              </div>
             </motion.div>
           ) : (
             <motion.div

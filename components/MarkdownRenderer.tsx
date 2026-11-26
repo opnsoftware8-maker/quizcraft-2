@@ -293,139 +293,283 @@ function renderRichChildren(
   });
 }
 
+/**
+ * Splits a Markdown document into independent top-level blocks at blank lines
+ * while keeping fenced code blocks, multi-line display math ($$...$$, \[...\]),
+ * consecutive list items (so <ol> numbering is preserved), and blockquotes intact.
+ */
+function splitMarkdownBlocks(raw: string): string[] {
+  if (!raw) return [];
+  const normalized = raw.replace(/\r\n/g, "\n");
+
+  // Preserve whole-document parsing if Markdown link reference definitions exist
+  if (/^\s*\[[^\]]+\]:\s+\S/m.test(normalized)) {
+    return [normalized];
+  }
+
+  const lines = normalized.split("\n");
+  const blocks: string[] = [];
+  let currentLines: string[] = [];
+
+  let inFence = false;
+  let fenceChar = "";
+  let fenceLen = 0;
+  let inDisplayDollarMath = false;
+  let displayBracketDepth = 0;
+
+  const isListLine = (line: string) =>
+    /^\s*(?:[-*+]|\d+[.)])\s+/.test(line);
+  const isIndentedContinuation = (line: string) => /^\s{2,}\S/.test(line);
+  const isBlockquoteLine = (line: string) => /^\s*>/.test(line);
+
+  const countUnescapedDoubleDollars = (line: string): number => {
+    let count = 0;
+    for (let i = 0; i < line.length - 1; i++) {
+      if (line[i] === "\\") {
+        i++;
+        continue;
+      }
+      if (line[i] === "$" && line[i + 1] === "$") {
+        count++;
+        i++;
+      }
+    }
+    return count;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[1];
+      if (!inFence) {
+        inFence = true;
+        fenceChar = marker[0];
+        fenceLen = marker.length;
+      } else if (
+        marker[0] === fenceChar &&
+        marker.length >= fenceLen &&
+        line.trim().length === marker.length
+      ) {
+        inFence = false;
+        fenceChar = "";
+        fenceLen = 0;
+      }
+    }
+
+    if (!inFence) {
+      if (countUnescapedDoubleDollars(line) % 2 === 1) {
+        inDisplayDollarMath = !inDisplayDollarMath;
+      }
+      const openBrackets = (line.match(/(?<!\\)\\\[/g) || []).length;
+      const closeBrackets = (line.match(/(?<!\\)\\\]/g) || []).length;
+      displayBracketDepth = Math.max(
+        0,
+        displayBracketDepth + openBrackets - closeBrackets
+      );
+    }
+
+    if (
+      line.trim() === "" &&
+      !inFence &&
+      !inDisplayDollarMath &&
+      displayBracketDepth === 0
+    ) {
+      let nextNonEmptyIdx = i + 1;
+      while (nextNonEmptyIdx < lines.length && lines[nextNonEmptyIdx].trim() === "") {
+        nextNonEmptyIdx++;
+      }
+
+      if (nextNonEmptyIdx < lines.length && currentLines.length > 0) {
+        const nextLine = lines[nextNonEmptyIdx];
+        const prevNonEmpty = [...currentLines]
+          .reverse()
+          .find((l) => l.trim() !== "");
+
+        const currentHasList = currentLines.some((l) => isListLine(l));
+        const shouldContinueList =
+          currentHasList &&
+          (isListLine(nextLine) || isIndentedContinuation(nextLine));
+        const shouldContinueQuote =
+          prevNonEmpty !== undefined &&
+          isBlockquoteLine(prevNonEmpty) &&
+          isBlockquoteLine(nextLine);
+
+        if (shouldContinueList || shouldContinueQuote) {
+          currentLines.push(line);
+          continue;
+        }
+      }
+
+      if (currentLines.some((l) => l.trim() !== "")) {
+        blocks.push(currentLines.join("\n"));
+        currentLines = [];
+      }
+      continue;
+    }
+
+    currentLines.push(line);
+  }
+
+  if (currentLines.some((l) => l.trim() !== "")) {
+    blocks.push(currentLines.join("\n"));
+  }
+
+  return blocks.length > 0 ? blocks : [normalized];
+}
+
+const MemoizedMarkdownBlock = React.memo(function MemoizedMarkdownBlock({
+  block,
+}: {
+  block: string;
+}) {
+  const { text: contentWithMathTokens, mathEntries } =
+    extractMathPlaceholders(block);
+  const normalizedContent = normalizeMarkdownTables(contentWithMathTokens);
+
+  const components = React.useMemo(
+    () => ({
+      h1: ({ children }: { children?: React.ReactNode }) => (
+        <h1 className="text-2xl font-bold text-[#1F1E1D] mt-6 mb-3 first:mt-0 leading-snug tracking-tight">
+          {renderRichChildren(children, mathEntries)}
+        </h1>
+      ),
+      h2: ({ children }: { children?: React.ReactNode }) => (
+        <h2 className="text-xl font-bold text-[#1F1E1D] mt-5 mb-2.5 first:mt-0 leading-snug tracking-tight">
+          {renderRichChildren(children, mathEntries)}
+        </h2>
+      ),
+      h3: ({ children }: { children?: React.ReactNode }) => (
+        <h3 className="text-lg font-semibold text-[#1F1E1D] mt-4 mb-2 first:mt-0 leading-snug">
+          {renderRichChildren(children, mathEntries)}
+        </h3>
+      ),
+      h4: ({ children }: { children?: React.ReactNode }) => (
+        <h4 className="text-base font-semibold text-[#1F1E1D] mt-3.5 mb-1.5 first:mt-0 leading-snug">
+          {renderRichChildren(children, mathEntries)}
+        </h4>
+      ),
+      p: ({ children }: { children?: React.ReactNode }) => (
+        <p className="mb-3.5 last:mb-0 text-[15.5px] leading-[1.75] text-[#1F1E1D]">
+          {renderRichChildren(children, mathEntries)}
+        </p>
+      ),
+      strong: ({ children }: { children?: React.ReactNode }) => (
+        <strong className="font-bold text-[#1F1E1D]">
+          {renderRichChildren(children, mathEntries)}
+        </strong>
+      ),
+      em: ({ children }: { children?: React.ReactNode }) => (
+        <em className="italic text-[#2D2C29]">
+          {renderRichChildren(children, mathEntries)}
+        </em>
+      ),
+      ul: ({ children }: { children?: React.ReactNode }) => (
+        <ul className="list-disc pl-6 mb-3.5 last:mb-0 space-y-1.5 text-[15.5px] leading-[1.7] text-[#1F1E1D]">
+          {children}
+        </ul>
+      ),
+      ol: ({ children }: { children?: React.ReactNode }) => (
+        <ol className="list-decimal pl-6 mb-3.5 last:mb-0 space-y-1.5 text-[15.5px] leading-[1.7] text-[#1F1E1D]">
+          {children}
+        </ol>
+      ),
+      li: ({ children }: { children?: React.ReactNode }) => (
+        <li className="pl-1 [&>p]:mb-1.5 [&>p:last-child]:mb-0 [&>ul]:mt-1.5 [&>ol]:mt-1.5">
+          {renderRichChildren(children, mathEntries)}
+        </li>
+      ),
+      blockquote: ({ children }: { children?: React.ReactNode }) => (
+        <blockquote className="border-l-[3px] border-[#CFCBC2] pl-4 my-3.5 text-[#4A4843] italic">
+          {renderRichChildren(children, mathEntries)}
+        </blockquote>
+      ),
+      hr: () => <hr className="my-5 border-[#E5E3DC]" />,
+      a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-2 text-[#1F1E1D] hover:text-[#57554F] transition-colors"
+        >
+          {renderRichChildren(children, mathEntries)}
+        </a>
+      ),
+      pre: ({ children }: { children?: React.ReactNode }) => (
+        <pre className="my-3.5 rounded-xl bg-[#EFECE4] border border-[#E2DFD7] overflow-x-auto p-3.5 text-[13.5px] leading-relaxed font-mono text-[#1F1E1D] [&>code]:bg-transparent [&>code]:p-0 [&>code]:rounded-none [&>code]:block [&>code]:whitespace-pre [&>code]:text-[13.5px]">
+          {children}
+        </pre>
+      ),
+      code: ({
+        className,
+        children,
+      }: {
+        className?: string;
+        children?: React.ReactNode;
+      }) => (
+        <code
+          className={`px-1.5 py-0.5 rounded-md bg-[#EFECE4] text-[#1F1E1D] font-mono text-[13.5px] ${
+            className || ""
+          }`}
+        >
+          {children}
+        </code>
+      ),
+      table: ({ children }: { children?: React.ReactNode }) => (
+        <div className="my-4 w-full overflow-x-auto rounded-2xl border border-[#E5E3DC] bg-white shadow-[0_1px_4px_rgba(31,30,29,0.03)]">
+          <table className="w-full min-w-full text-sm text-left border-collapse">
+            {children}
+          </table>
+        </div>
+      ),
+      thead: ({ children }: { children?: React.ReactNode }) => (
+        <thead className="bg-[#EFECE4] border-b border-[#E5E3DC]">
+          {children}
+        </thead>
+      ),
+      tbody: ({ children }: { children?: React.ReactNode }) => (
+        <tbody className="divide-y divide-[#ECEAE3] bg-white">{children}</tbody>
+      ),
+      tr: ({ children }: { children?: React.ReactNode }) => (
+        <tr className="transition-colors hover:bg-[#FAF9F5]/80">{children}</tr>
+      ),
+      th: ({ children }: { children?: React.ReactNode }) => (
+        <th className="px-3.5 py-2.5 font-semibold text-xs sm:text-sm text-[#1F1E1D] align-top min-w-[100px] border-r border-[#E5E3DC]/70 last:border-r-0">
+          {renderRichChildren(children, mathEntries, true)}
+        </th>
+      ),
+      td: ({ children }: { children?: React.ReactNode }) => (
+        <td className="px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed text-[#1F1E1D] align-top min-w-[100px] border-r border-[#ECEAE3]/70 last:border-r-0">
+          {renderRichChildren(children, mathEntries, true)}
+        </td>
+      ),
+    }),
+    [mathEntries]
+  );
+
+  return (
+    <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={components}>
+      {normalizedContent}
+    </ReactMarkdown>
+  );
+});
+
 export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   content,
   isStreaming = false,
 }: MarkdownRendererProps) {
-  const { text: contentWithMathTokens, mathEntries } =
-    extractMathPlaceholders(content);
-  const normalizedContent = normalizeMarkdownTables(contentWithMathTokens);
+  const blocks = React.useMemo(() => splitMarkdownBlocks(content), [content]);
 
   return (
     <div
       className={`w-full text-[#1F1E1D] break-words ${
-        isStreaming ? "streaming-markdown" : ""
+        isStreaming ? "streaming-markdown-tail" : ""
       }`}
     >
-      <ReactMarkdown
-        remarkPlugins={REMARK_PLUGINS}
-        components={{
-          h1: ({ children }) => (
-            <h1 className="text-2xl font-bold text-[#1F1E1D] mt-6 mb-3 first:mt-0 leading-snug tracking-tight">
-              {renderRichChildren(children, mathEntries)}
-            </h1>
-          ),
-          h2: ({ children }) => (
-            <h2 className="text-xl font-bold text-[#1F1E1D] mt-5 mb-2.5 first:mt-0 leading-snug tracking-tight">
-              {renderRichChildren(children, mathEntries)}
-            </h2>
-          ),
-          h3: ({ children }) => (
-            <h3 className="text-lg font-semibold text-[#1F1E1D] mt-4 mb-2 first:mt-0 leading-snug">
-              {renderRichChildren(children, mathEntries)}
-            </h3>
-          ),
-          h4: ({ children }) => (
-            <h4 className="text-base font-semibold text-[#1F1E1D] mt-3.5 mb-1.5 first:mt-0 leading-snug">
-              {renderRichChildren(children, mathEntries)}
-            </h4>
-          ),
-          p: ({ children }) => (
-            <p className="mb-3.5 last:mb-0 text-[15.5px] leading-[1.75] text-[#1F1E1D]">
-              {renderRichChildren(children, mathEntries)}
-            </p>
-          ),
-          strong: ({ children }) => (
-            <strong className="font-bold text-[#1F1E1D]">
-              {renderRichChildren(children, mathEntries)}
-            </strong>
-          ),
-          em: ({ children }) => (
-            <em className="italic text-[#2D2C29]">
-              {renderRichChildren(children, mathEntries)}
-            </em>
-          ),
-          ul: ({ children }) => (
-            <ul className="list-disc pl-6 mb-3.5 last:mb-0 space-y-1.5 text-[15.5px] leading-[1.7] text-[#1F1E1D]">
-              {children}
-            </ul>
-          ),
-          ol: ({ children }) => (
-            <ol className="list-decimal pl-6 mb-3.5 last:mb-0 space-y-1.5 text-[15.5px] leading-[1.7] text-[#1F1E1D]">
-              {children}
-            </ol>
-          ),
-          li: ({ children }) => (
-            <li className="pl-1 [&>p]:mb-1.5 [&>p:last-child]:mb-0 [&>ul]:mt-1.5 [&>ol]:mt-1.5">
-              {renderRichChildren(children, mathEntries)}
-            </li>
-          ),
-          blockquote: ({ children }) => (
-            <blockquote className="border-l-[3px] border-[#CFCBC2] pl-4 my-3.5 text-[#4A4843] italic">
-              {renderRichChildren(children, mathEntries)}
-            </blockquote>
-          ),
-          hr: () => <hr className="my-5 border-[#E5E3DC]" />,
-          a: ({ href, children }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline underline-offset-2 text-[#1F1E1D] hover:text-[#57554F] transition-colors"
-            >
-              {renderRichChildren(children, mathEntries)}
-            </a>
-          ),
-          pre: ({ children }) => (
-            <pre className="my-3.5 rounded-xl bg-[#EFECE4] border border-[#E2DFD7] overflow-x-auto p-3.5 text-[13.5px] leading-relaxed font-mono text-[#1F1E1D] [&>code]:bg-transparent [&>code]:p-0 [&>code]:rounded-none [&>code]:block [&>code]:whitespace-pre [&>code]:text-[13.5px]">
-              {children}
-            </pre>
-          ),
-          code: ({ className, children }) => (
-            <code
-              className={`px-1.5 py-0.5 rounded-md bg-[#EFECE4] text-[#1F1E1D] font-mono text-[13.5px] ${
-                className || ""
-              }`}
-            >
-              {children}
-            </code>
-          ),
-          table: ({ children }) => (
-            <div className="my-4 w-full overflow-x-auto rounded-2xl border border-[#E5E3DC] bg-white shadow-[0_1px_4px_rgba(31,30,29,0.03)]">
-              <table className="w-full min-w-full text-sm text-left border-collapse">
-                {children}
-              </table>
-            </div>
-          ),
-          thead: ({ children }) => (
-            <thead className="bg-[#EFECE4] border-b border-[#E5E3DC]">
-              {children}
-            </thead>
-          ),
-          tbody: ({ children }) => (
-            <tbody className="divide-y divide-[#ECEAE3] bg-white">
-              {children}
-            </tbody>
-          ),
-          tr: ({ children }) => (
-            <tr className="transition-colors hover:bg-[#FAF9F5]/80">
-              {children}
-            </tr>
-          ),
-          th: ({ children }) => (
-            <th className="px-3.5 py-2.5 font-semibold text-xs sm:text-sm text-[#1F1E1D] align-top min-w-[100px] border-r border-[#E5E3DC]/70 last:border-r-0">
-              {renderRichChildren(children, mathEntries, true)}
-            </th>
-          ),
-          td: ({ children }) => (
-            <td className="px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed text-[#1F1E1D] align-top min-w-[100px] border-r border-[#ECEAE3]/70 last:border-r-0">
-              {renderRichChildren(children, mathEntries, true)}
-            </td>
-          ),
-        }}
-      >
-        {normalizedContent}
-      </ReactMarkdown>
+      {blocks.map((block, idx) => (
+        <MemoizedMarkdownBlock key={idx} block={block} />
+      ))}
     </div>
   );
 });

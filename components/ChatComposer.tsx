@@ -25,7 +25,7 @@ interface ChatComposerProps {
   onRemoveAttachedItem?: (itemId: string) => void;
 }
 
-export function ChatComposer({
+export const ChatComposer = React.memo(function ChatComposer({
   value,
   onChange,
   onSubmit,
@@ -66,22 +66,34 @@ export function ChatComposer({
     };
   }, [isAddMenuOpen]);
 
-  // Auto-grow textarea height smoothly up to a max height without showing any scrollbar
+  // Auto-grow textarea height smoothly without forcing layout reflow when empty
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
+    if (!value) {
+      el.style.height = "";
+      el.style.overflowY = "hidden";
+      return;
+    }
     el.style.height = "auto";
     const maxHeight = 160;
     const nextHeight = Math.min(el.scrollHeight, maxHeight);
     el.style.height = `${nextHeight}px`;
-    el.style.overflowY = value && el.scrollHeight > maxHeight ? "auto" : "hidden";
+    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   }, [value]);
+
+  const resetWindowScrollIfNeeded = () => {
+    if (typeof window !== "undefined" && (window.scrollY !== 0 || window.scrollX !== 0)) {
+      window.scrollTo(0, 0);
+    }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (!isStreaming && onSubmit && hasContentToSend) {
         onSubmit();
+        resetWindowScrollIfNeeded();
       }
     }
   };
@@ -235,6 +247,7 @@ export function ChatComposer({
           e.preventDefault();
           if (!isStreaming && onSubmit && hasContentToSend) {
             onSubmit();
+            resetWindowScrollIfNeeded();
           }
         }}
         className="bg-white border border-[#E5E3DC] rounded-[28px] shadow-[0_2px_14px_rgba(31,30,29,0.05)] px-2.5 py-2 flex items-end gap-2 focus-within:border-[#CFCBC2] transition-colors"
@@ -266,6 +279,7 @@ export function ChatComposer({
           rows={1}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={resetWindowScrollIfNeeded}
           onKeyDown={handleKeyDown}
           placeholder={
             language === "en"
@@ -275,7 +289,7 @@ export function ChatComposer({
           className="flex-1 bg-transparent border-0 outline-hidden resize-none py-2 px-1.5 text-[16px] leading-relaxed text-[#1F1E1D] placeholder:text-[#8C8A84] max-h-40 overflow-y-hidden no-scrollbar appearance-none"
         />
 
-        {/* Right Control: Send Only (Mic Removed) */}
+        {/* Right Control: Send Only */}
         <div className="flex items-center shrink-0">
           <button
             type="submit"
@@ -294,4 +308,4 @@ export function ChatComposer({
       </form>
     </div>
   );
-}
+});
