@@ -24,6 +24,7 @@ import {
   sanitizeStructuredTables,
   tableToTsv,
 } from "@/lib/structured-table";
+import { MathCanvasData, sanitizeMathCanvases } from "@/lib/math-canvas";
 
 function formatAttachmentsForApi(
   items: StudyHistoryItem[],
@@ -175,6 +176,7 @@ export function useChatStream({
       let streamFinished = false;
       let accumulatedText = "";
       let accumulatedTables: StructuredTableData[] = [];
+      let accumulatedCanvases: MathCanvasData[] = [];
 
       const updateTargetContent = (
         content: string,
@@ -190,6 +192,9 @@ export function useChatStream({
                   ...(accumulatedTables.length > 0
                     ? { tables: accumulatedTables }
                     : {}),
+                  ...(accumulatedCanvases.length > 0
+                    ? { canvases: accumulatedCanvases }
+                    : {}),
                 }
               : m
           );
@@ -203,6 +208,17 @@ export function useChatStream({
         setMessages((prev) => {
           const next = prev.map((m) =>
             m.id === targetAiId ? { ...m, tables: accumulatedTables } : m
+          );
+          messagesRef.current = next;
+          return next;
+        });
+      };
+
+      const appendCanvasToTarget = (canvas: MathCanvasData) => {
+        accumulatedCanvases = [...accumulatedCanvases, canvas];
+        setMessages((prev) => {
+          const next = prev.map((m) =>
+            m.id === targetAiId ? { ...m, canvases: accumulatedCanvases } : m
           );
           messagesRef.current = next;
           return next;
@@ -320,6 +336,12 @@ export function useChatStream({
                     appendTableToTarget(validTables[0]);
                   }
                 }
+                if (parsed?.canvas) {
+                  const validCanvases = sanitizeMathCanvases([parsed.canvas]);
+                  if (validCanvases && validCanvases.length > 0) {
+                    appendCanvasToTarget(validCanvases[0]);
+                  }
+                }
               } catch (parseErr: any) {
                 if (parseErr?.message && !String(parseErr.message).includes("JSON")) {
                   throw parseErr;
@@ -334,10 +356,12 @@ export function useChatStream({
 
         if (!controller.signal.aborted) {
           const hasAnyOutput =
-            accumulatedText.length > 0 || accumulatedTables.length > 0;
+            accumulatedText.length > 0 ||
+            accumulatedTables.length > 0 ||
+            accumulatedCanvases.length > 0;
           const finalText =
             accumulatedText ||
-            (accumulatedTables.length > 0
+            (accumulatedTables.length > 0 || accumulatedCanvases.length > 0
               ? ""
               : language === "en"
                 ? "No response received. Please try again."
@@ -375,7 +399,10 @@ export function useChatStream({
           if (finalStatus === "done" && userId && chatIdForPersist) {
             const firestoreText =
               finalText ||
-              accumulatedTables.map((t) => `[Table] ${t.title}`).join("\n") ||
+              [
+                ...accumulatedTables.map((t) => `[Table] ${t.title}`),
+                ...accumulatedCanvases.map((c) => `[Graph] ${c.title}`),
+              ].join("\n") ||
               " ";
             if (isRetryPersist) {
               updateAssistantMessageContent({
@@ -556,12 +583,22 @@ export function useChatStream({
       }
 
       const formatMsgForHistory = (m: ChatMessage) => {
+        const parts: string[] = [];
         const base = (m.apiContent || m.content).trim();
-        if (!m.tables || m.tables.length === 0) return base;
-        const tblSummary = m.tables
-          .map((t) => `[Table: ${t.title}]\n${tableToTsv(t)}`)
-          .join("\n\n");
-        return base ? `${base}\n\n${tblSummary}` : tblSummary;
+        if (base) parts.push(base);
+        if (m.tables && m.tables.length > 0) {
+          parts.push(
+            m.tables.map((t) => `[Table: ${t.title}]\n${tableToTsv(t)}`).join("\n\n")
+          );
+        }
+        if (m.canvases && m.canvases.length > 0) {
+          parts.push(
+            m.canvases
+              .map((c) => `[Graph Canvas: ${c.title} (${c.gridMode}, X:[${c.xMin},${c.xMax}], Y:[${c.yMin},${c.yMax}])]`)
+              .join("\n")
+          );
+        }
+        return parts.join("\n\n");
       };
 
       const historyForApi = [
@@ -592,12 +629,22 @@ export function useChatStream({
       const wasPreviousError = targetMsg.status === "error";
 
       const formatMsgForHistory = (m: ChatMessage) => {
+        const parts: string[] = [];
         const base = (m.apiContent || m.content).trim();
-        if (!m.tables || m.tables.length === 0) return base;
-        const tblSummary = m.tables
-          .map((t) => `[Table: ${t.title}]\n${tableToTsv(t)}`)
-          .join("\n\n");
-        return base ? `${base}\n\n${tblSummary}` : tblSummary;
+        if (base) parts.push(base);
+        if (m.tables && m.tables.length > 0) {
+          parts.push(
+            m.tables.map((t) => `[Table: ${t.title}]\n${tableToTsv(t)}`).join("\n\n")
+          );
+        }
+        if (m.canvases && m.canvases.length > 0) {
+          parts.push(
+            m.canvases
+              .map((c) => `[Graph Canvas: ${c.title} (${c.gridMode}, X:[${c.xMin},${c.xMax}], Y:[${c.yMin},${c.yMax}])]`)
+              .join("\n")
+          );
+        }
+        return parts.join("\n\n");
       };
 
       const historyUpToPrompt = current
@@ -618,6 +665,7 @@ export function useChatStream({
                 ...m,
                 content: "",
                 tables: undefined,
+                canvases: undefined,
                 personaId: currentPersona ? currentPersona.id : "",
                 personaName: currentPersona ? currentPersona.name : "",
                 status: "streaming" as const,

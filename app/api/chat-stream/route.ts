@@ -10,6 +10,7 @@ import {
   MathVariableInput,
 } from "@/lib/math-evaluator";
 import { normalizeTableToolArgs } from "@/lib/structured-table";
+import { normalizeMathCanvasToolArgs } from "@/lib/math-canvas";
 
 interface IncomingChatMessage {
   role: "user" | "assistant";
@@ -109,6 +110,192 @@ const renderDataTableDeclaration: FunctionDeclaration = {
   },
 };
 
+const renderMathCanvasDeclaration: FunctionDeclaration = {
+  name: "render_math_canvas",
+  description:
+    "Render an interactive, zoomable blank-paper 2D coordinate sheet / math graph / vector & matrix diagram in the chat UI. Call ONLY when the user asks about mathematics, calculation sciences, physics, chemistry, statistics, geometry, vectors, matrices, fractions layout, or quantitative topics needing a visual graph or spatial diagram.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      title: {
+        type: Type.STRING,
+        description: "Clear concise title for the graph or math sheet (no emojis).",
+      },
+      subject: {
+        type: Type.STRING,
+        description: "Academic subject (e.g. 'Mathematics', 'Algebra', 'Calculus', 'Linear Algebra', 'Physics', 'Geometry', 'Economics').",
+      },
+      gridMode: {
+        type: Type.STRING,
+        description:
+          "'invisible' for blank paper with hidden X-Y coordinate positioning (ideal for fractions, matrices, arithmetic steps, pure geometry), 'faint' for subtle dotted coordinate lines, or 'axes' for a full Cartesian X-Y coordinate plane with ticks and arrows.",
+      },
+      canvasHeight: {
+        type: Type.STRING,
+        description: "'compact', 'standard', or 'tall' depending on vertical space needed.",
+      },
+      xMin: {
+        type: Type.NUMBER,
+        description: "Left bound of X coordinate space (e.g. -10 or 0).",
+      },
+      xMax: {
+        type: Type.NUMBER,
+        description: "Right bound of X coordinate space (e.g. 10).",
+      },
+      yMin: {
+        type: Type.NUMBER,
+        description: "Bottom bound of Y coordinate space (e.g. -10 or 0).",
+      },
+      yMax: {
+        type: Type.NUMBER,
+        description: "Top bound of Y coordinate space (e.g. 10).",
+      },
+      xStep: {
+        type: Type.NUMBER,
+        description: "Optional grid/tick interval along X axis.",
+      },
+      yStep: {
+        type: Type.NUMBER,
+        description: "Optional grid/tick interval along Y axis.",
+      },
+      xLabel: {
+        type: Type.STRING,
+        description: "Optional X axis label (e.g. 'x', 't (s)').",
+      },
+      yLabel: {
+        type: Type.STRING,
+        description: "Optional Y axis label (e.g. 'y', 'f(x)').",
+      },
+      functions: {
+        type: Type.ARRAY,
+        description: "Mathematical functions y = f(x) to plot smoothly via Math.js.",
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            expr: {
+              type: Type.STRING,
+              description: "Math.js expression in x, e.g. 'x^2 - 4', '2*x + 1', 'sin(x)', '1/x'.",
+            },
+            xMin: { type: Type.NUMBER, description: "Optional start x." },
+            xMax: { type: Type.NUMBER, description: "Optional end x." },
+            color: { type: Type.STRING, description: "Hex color e.g. '#0284C7', '#DC2626', '#059669'." },
+            dashed: { type: Type.BOOLEAN, description: "Optional dashed stroke." },
+            label: { type: Type.STRING, description: "Optional equation label." },
+          },
+          required: ["expr", "color"],
+        },
+      },
+      curves: {
+        type: Type.ARRAY,
+        description: "Smooth spline curves or closed polygons defined by (x, y) control points.",
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            points: {
+              type: Type.ARRAY,
+              description: "Ordered (x, y) points along the curve.",
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  x: { type: Type.NUMBER },
+                  y: { type: Type.NUMBER },
+                },
+                required: ["x", "y"],
+              },
+            },
+            smooth: { type: Type.BOOLEAN, description: "True for smooth curve, false for straight polyline." },
+            closed: { type: Type.BOOLEAN, description: "True to close polygon/shape." },
+            color: { type: Type.STRING, description: "Stroke hex color." },
+            fill: { type: Type.STRING, description: "Optional translucent fill e.g. 'rgba(2, 132, 199, 0.12)'." },
+            dashed: { type: Type.BOOLEAN },
+            arrowEnd: { type: Type.BOOLEAN },
+            label: { type: Type.STRING },
+          },
+          required: ["points", "color"],
+        },
+      },
+      lines: {
+        type: Type.ARRAY,
+        description: "Straight line segments, rays, vectors (arrowEnd: true), division bars, or geometric edges.",
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            x1: { type: Type.NUMBER },
+            y1: { type: Type.NUMBER },
+            x2: { type: Type.NUMBER },
+            y2: { type: Type.NUMBER },
+            color: { type: Type.STRING },
+            strokeWidth: { type: Type.NUMBER },
+            dashed: { type: Type.BOOLEAN },
+            arrowStart: { type: Type.BOOLEAN },
+            arrowEnd: { type: Type.BOOLEAN },
+            label: { type: Type.STRING },
+          },
+          required: ["x1", "y1", "x2", "y2", "color"],
+        },
+      },
+      shapes: {
+        type: Type.ARRAY,
+        description: "Circles or rectangles on the X-Y coordinate sheet.",
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            type: { type: Type.STRING, description: "'circle' or 'rect'." },
+            x: { type: Type.NUMBER, description: "Center x for circle, or bottom-left x for rect." },
+            y: { type: Type.NUMBER, description: "Center y for circle, or bottom-left y for rect." },
+            r: { type: Type.NUMBER, description: "Radius in math units (for circle)." },
+            width: { type: Type.NUMBER, description: "Width in math units (for rect)." },
+            height: { type: Type.NUMBER, description: "Height in math units (for rect)." },
+            color: { type: Type.STRING },
+            fill: { type: Type.STRING },
+            dashed: { type: Type.BOOLEAN },
+          },
+          required: ["type", "x", "y", "color"],
+        },
+      },
+      points: {
+        type: Type.ARRAY,
+        description: "Key coordinate markers (vertices, roots, intersections).",
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            x: { type: Type.NUMBER },
+            y: { type: Type.NUMBER },
+            color: { type: Type.STRING },
+            style: { type: Type.STRING, description: "'filled' or 'hollow'." },
+            label: { type: Type.STRING },
+          },
+          required: ["x", "y", "color"],
+        },
+      },
+      annotations: {
+        type: Type.ARRAY,
+        description:
+          "Text, numbers, fractions, matrices, or equations placed at exact (x, y) positions. Use isLatex: true for KaTeX formatting like '\\\\frac{3}{4}' or '\\\\begin{bmatrix} 1 & 2 \\\\\\\\ 3 & 4 \\\\end{bmatrix}'.",
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            x: { type: Type.NUMBER },
+            y: { type: Type.NUMBER },
+            content: { type: Type.STRING },
+            isLatex: { type: Type.BOOLEAN },
+            color: { type: Type.STRING },
+            fontSize: { type: Type.STRING, description: "'sm', 'md', or 'lg'." },
+            align: { type: Type.STRING, description: "'center', 'left', or 'right'." },
+            background: { type: Type.BOOLEAN },
+          },
+          required: ["x", "y", "content", "color"],
+        },
+      },
+      summary: {
+        type: Type.STRING,
+        description: "Optional brief 1-line note shown below the graph card.",
+      },
+    },
+    required: ["title", "gridMode", "xMin", "xMax", "yMin", "yMax"],
+  },
+};
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -167,7 +354,16 @@ export async function POST(req: NextRequest) {
   - Whenever you compare 2+ items, concepts, formulas, options, specs, pros/cons, or organize structured object/list data or pasted data blocks, AUTOMATICALLY call the \`render_data_table\` tool to emit a structured Table Card in the chat.
   - Ensure every row's \`values\` array matches the exact length and order of \`columns\`, with concise, readable cell text (never include emojis).
   - After calling \`render_data_table\`, do NOT repeat or duplicate the exact same table again as Markdown text—provide a brief, helpful explanation or key comparison insight around the card instead.
-- Format responses cleanly using Markdown: headings (#, ##, ###), clear paragraphs, lists, **bold**, and fenced code blocks (\`\`\`) for code.
+- INTERACTIVE COORDINATE CANVAS / MATH SHEET (\`render_math_canvas\`):
+  - ONLY call \`render_math_canvas\` when the question involves **mathematics, calculation sciences, physics, chemistry, statistics, geometry, vectors, matrices, fractions layout, or quantitative sciences** that genuinely benefit from a visual graph or coordinate diagram. NEVER call it for casual chat, greetings, history, language, or general Q&A.
+  - Choose \`gridMode\` deliberately:
+    - Use \`"axes"\` for Cartesian graphs, plotted curves (\`functions\` using Math.js expressions like \`x^2 - 4\`), vectors (\`lines\` with \`arrowEnd: true\`), or physics/economics curves.
+    - Use \`"invisible"\` for blank-paper spatial layouts controlled by hidden X-Y coordinates (e.g. stacked fractions, long division, matrix operations, vector components, geometric proofs without axes).
+  - Use \`annotations\` with \`isLatex: true\` to place fractions (\`\\\\frac{a}{b}\`), matrices (\`\\\\begin{bmatrix} ... \\\\end{bmatrix}\`), vectors (\`\\\\vec{v}\`), and labeled numbers cleanly at exact \`(x, y)\` coordinates. Use distinct clear colors (\`#0284C7\`, \`#DC2626\`, \`#059669\`, \`#D97706\`, \`#7C3AED\`, \`#1F1E1D\`) and adjust \`xMin\`, \`xMax\`, \`yMin\`, \`yMax\`, \`xStep\`, \`yStep\`, and \`canvasHeight\` (\`"compact"\` / \`"standard"\` / \`"tall"\`) so every element has comfortable spacing without overlapping.
+- NATURAL READABILITY & FORMATTING:
+  - Write in clear, natural, human-friendly language. Avoid cluttering responses with horizontal divider lines (\`---\`), excessive nested \`###\`/\`####\` symbols, or raw computer-code syntax in normal explanations.
+  - Only use fenced code blocks (\`\`\`) when the user specifically asks for programming code.
+  - When writing fractions or formulas in text, either use simple readable notation (like \`2/3\`, \`×\`, \`÷\`) or wrap mathematical expressions cleanly in \`$...$\` / \`$$...$$\` so they render properly—never leave raw unescaped LaTeX commands like \`\\frac\` outside math delimiters.
 - STRICT RULE (NEVER VIOLATE): NEVER use any emojis, emoticons, or pictorial Unicode symbols anywhere in your output (no 😊, ✨, 🚀, ✅, 📌, 👉, 💡, 🔥, etc.). Output plain text and clean Markdown syntax only.
 - Respond in the same language the user writes in (defaulting to English unless they write in Thai).`
         : `คุณคือ OpenSolver (QuizCraft AI) ผู้ช่วยด้านการเรียน การวิเคราะห์โจทย์ และติวเตอร์วิชาการที่ฉลาด ชัดเจน และแม่นยำ
@@ -181,8 +377,16 @@ export async function POST(req: NextRequest) {
   - ทุกครั้งที่มีการเปรียบเทียบข้อมูลตั้งแต่ 2 รายการขึ้นไป (เช่น เปรียบเทียบสูตร แนวคิด ข้อดี-ข้อเสีย สเปก ข้อมูลสถิติ) หรือจัดโครงสร้างข้อมูลแบบ Object/List หรือข้อมูลก้อนยาวๆ ให้ **เรียกใช้เครื่องมือ \`render_data_table\` โดยอัตโนมัติ** เพื่อส่งออกการ์ดตารางลงในแชท
   - ตรวจสอบให้ \`values\` ในทุกแถวมีจำนวนและลำดับตรงกับ \`columns\` เสมอ ข้อความในแต่ละช่องกระชับ อ่านง่าย และห้ามมีอีโมจิ
   - เมื่อเรียกใช้ \`render_data_table\` แล้ว **ห้ามเขียนตาราง Markdown ซ้ำข้อมูลชุดเดียวกันอีก** ให้สรุปประเด็นสำคัญหรือคำอธิบายประกอบสั้นๆ รอบการ์ดตารางแทน
-- จัดรูปแบบคำตอบด้วย Markdown ให้อ่านง่าย: ใช้หัวข้อ (#, ##, ###) แบ่งย่อหน้า ใช้รายการ **ตัวหนา** เน้นคำตอบ และบล็อกโค้ด (\`\`\`) สำหรับโค้ด
-- กฎเหล็กเด็ดขาด: ห้ามใช้อิโมจิ (Emoji) หรือสัญลักษณ์รูปภาพใดๆ ทั้งสิ้นในคำตอบไม่ว่าจะกรณีใดๆ (ห้ามมี 😊, ✨, 🚀, ✅, 📌, 👉, 💡, 🔥, 👍 ฯลฯ) ให้ใช้เฉพาะตัวอักษรปกติและรูปแบบ Markdown เท่านั้น
+- การ์ดกระดาษพิกัด X-Y และจำลองกราฟ/สมการ (\`render_math_canvas\`):
+  - **เรียกใช้เฉพาะเมื่อเป็นวิชาคณิตศาสตร์ ฟิสิกส์ เคมี สถิติ วิศวกรรม เศรษฐศาสตร์ หรือศาสตร์การคำนวณที่ต้องใช้กราฟ เส้นโค้ง เวกเตอร์ เมทริกซ์ เศษส่วน หรือภาพจำลองเชิงพิกัดเท่านั้น** (ห้ามเรียกใช้ในการสนทนาทั่วไป ภาษา ประวัติศาสตร์ หรือคำถามที่ไม่ใช่สายคำนวณ/จำลองค่า)
+  - เลือก \`gridMode\` ให้เหมาะกับเนื้อหา:
+    - \`"axes"\`: มีแกน X-Y พร้อมตัวเลขและเส้นกริด สำหรับพล็อตกราฟสมการ (\`functions\` เช่น \`x^2 - 4\`, \`sin(x)\`), เส้นโค้ง (\`curves\`), เวกเตอร์ (\`lines\` ที่มี \`arrowEnd: true\`), หรือกราฟฟิสิกส์/จุดตัด
+    - \`"invisible"\`: กระดาษขาวว่างที่มีพิกัด X-Y ล่องหนคอยจัดวางตำแหน่งตัวอักษร ตัวเลข เศษส่วน เมทริกซ์ และเส้นลากเชื่อมต่างๆ (เหมาะกับการแสดงวิธีทำเศษส่วน เมทริกซ์ การแยกตัวประกอบ หรือเรขาคณิตที่ไม่ต้องโชว์แกน)
+  - วางข้อความ เลข เศษส่วน หรือเมทริกซ์ผ่าน \`annotations\` โดยตั้ง \`isLatex: true\` เมื่อเป็นนิพจน์คณิต (เช่น \`\\\\frac{3}{4}\`, \`\\\\begin{bmatrix} 1 & 2 \\\\\\\\ 3 & 4 \\\\end{bmatrix}\`, \`\\\\vec{v}\`) เลือกใช้สีที่อ่านง่ายชัดเจน (\`#0284C7\`, \`#DC2626\`, \`#059669\`, \`#D97706\`, \`#7C3AED\`, \`#1F1E1D\`) และกำหนดขอบเขต \`xMin\`, \`xMax\`, \`yMin\`, \`yMax\`, \`xStep\`, \`yStep\` รวมถึง \`canvasHeight\` (\`"compact"\` / \`"standard"\` / \`"tall"\`) ให้พอดีไม่ซ้อนทับกัน
+- การเขียนข้อความให้อ่านเป็นธรรมชาติ (ห้ามใช้สัญลักษณ์รกรุงรัง):
+  - เขียนคำอธิบายเป็นภาษาคนอ่านง่าย เป็นธรรมชาติ หลีกเลี่ยงการใช้เส้นคั่น \`---\` หรือหัวข้อ \`###\` / \`####\` พร่ำเพรื่อ และห้ามใส่บล็อกโค้ด (\`\`\`) ในคำอธิบายทั่วไปที่ไม่ใช่โค้ดโปรแกรม
+  - สำหรับเศษส่วนหรือสูตรคณิตในข้อความ ให้เขียนแบบอ่านง่าย (เช่น \`2/3\`, \`×\`, \`÷\`) หรือครอบสมการให้ถูกต้องด้วย \`$...$\` / \`$$...$$\` เสมอ ห้ามปล่อยคำสั่งดิบอย่าง \`\\frac\` หลุดออกมานอกเครื่องหมายสมการเด็ดขาด
+- กฎเหล็กเด็ดขาด: ห้ามใช้อิโมจิ (Emoji) หรือสัญลักษณ์รูปภาพใดๆ ทั้งสิ้นในคำตอบไม่ว่าจะกรณีใดๆ (ห้ามมี 😊, ✨, 🚀, ✅, 📌, 👉, 💡, 🔥, 👍 ฯลฯ) ให้ใช้เฉพาะตัวอักษรปกติที่อ่านง่ายเท่านั้น
 - ตอบเป็นภาษาเดียวกับที่ผู้ใช้ถาม (โดยค่าเริ่มต้นตอบเป็นภาษาไทยที่สุภาพและเข้าใจง่าย)`;
 
     const personaDirective =
@@ -210,6 +414,7 @@ CRITICAL BEHAVIOR RULES FOR THIS PERSONA:
         functionDeclarations: [
           calculateMathDeclaration,
           renderDataTableDeclaration,
+          renderMathCanvasDeclaration,
         ],
       },
     ];
@@ -325,6 +530,43 @@ CRITICAL BEHAVIOR RULES FOR THIS PERSONA:
                       ok: false,
                       error:
                         "Invalid table data: at least one column header and one row are required.",
+                    },
+                  },
+                };
+              }
+
+              if (fc.name === "render_math_canvas") {
+                const normalizedCanvas = normalizeMathCanvasToolArgs(
+                  fc.args,
+                  `${Date.now()}-${round}-${fcIdx}`
+                );
+                if (normalizedCanvas) {
+                  controller.enqueue(
+                    encoder.encode(
+                      `data: ${JSON.stringify({ canvas: normalizedCanvas })}\n\n`
+                    )
+                  );
+                  return {
+                    functionResponse: {
+                      id: fc.id,
+                      name: fc.name,
+                      response: {
+                        ok: true,
+                        title: normalizedCanvas.title,
+                        gridMode: normalizedCanvas.gridMode,
+                      },
+                    },
+                  };
+                }
+
+                return {
+                  functionResponse: {
+                    id: fc.id,
+                    name: fc.name,
+                    response: {
+                      ok: false,
+                      error:
+                        "Invalid canvas data: include at least one function, curve, line, shape, point, or annotation.",
                     },
                   },
                 };

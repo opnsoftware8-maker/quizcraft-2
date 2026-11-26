@@ -1,5 +1,6 @@
 import { ChatMessage, ChatAttachmentMeta } from "@/components/ChatMessageList";
 import { sanitizeStructuredTables } from "@/lib/structured-table";
+import { sanitizeMathCanvases } from "@/lib/math-canvas";
 
 export interface SavedChatSession {
   id: string;
@@ -93,6 +94,7 @@ export function loadBrowserChats(userId: string): SavedChatSession[] {
           apiContent: typeof m.apiContent === "string" ? m.apiContent : undefined,
           attachments: Array.isArray(m.attachments) ? m.attachments : undefined,
           tables: sanitizeStructuredTables(m.tables),
+          canvases: sanitizeMathCanvases(m.canvases),
           personaId: typeof m.personaId === "string" ? m.personaId : undefined,
           personaName:
             typeof m.personaName === "string" ? m.personaName : undefined,

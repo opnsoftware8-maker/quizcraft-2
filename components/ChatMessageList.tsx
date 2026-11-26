@@ -14,10 +14,14 @@ import { motion } from "motion/react";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { DataTableCard } from "@/components/DataTableCard";
 import { DataTableModal } from "@/components/DataTableModal";
+import { MathCanvasCard } from "@/components/MathCanvasCard";
+import { MathCanvasModal } from "@/components/MathCanvasModal";
 import { PersonaAvatar } from "@/components/PersonaAvatarIcon";
 import { AiPersona } from "@/lib/firestore-personas";
 import { useLanguage } from "@/lib/language-context";
 import { StructuredTableData, tableToTsv } from "@/lib/structured-table";
+import { MathCanvasData } from "@/lib/math-canvas";
+import { markdownToCleanPlainText } from "@/lib/plain-text";
 
 export interface ChatAttachmentMeta {
   id: string;
@@ -33,6 +37,7 @@ export interface ChatMessage {
   apiContent?: string;
   attachments?: ChatAttachmentMeta[];
   tables?: StructuredTableData[];
+  canvases?: MathCanvasData[];
   personaId?: string;
   personaName?: string;
   status: "streaming" | "done" | "error";
@@ -83,6 +88,9 @@ export function ChatMessageList({
   const [expandedTable, setExpandedTable] = useState<StructuredTableData | null>(
     null
   );
+  const [expandedCanvas, setExpandedCanvas] = useState<MathCanvasData | null>(
+    null
+  );
 
   const handleScroll = () => {
     const el = scrollContainerRef.current;
@@ -110,11 +118,16 @@ export function ChatMessageList({
   const handleCopy = async (msg: ChatMessage) => {
     const parts: string[] = [];
     if (msg.content.trim()) {
-      parts.push(msg.content.trim());
+      parts.push(markdownToCleanPlainText(msg.content));
     }
     if (msg.tables && msg.tables.length > 0) {
       for (const tbl of msg.tables) {
         parts.push(`${tbl.title}\n${tableToTsv(tbl)}`);
+      }
+    }
+    if (msg.canvases && msg.canvases.length > 0) {
+      for (const cv of msg.canvases) {
+        parts.push(`[${cv.title}]`);
       }
     }
     const text = parts.join("\n\n");
@@ -185,8 +198,12 @@ export function ChatMessageList({
           }
 
           const hasTables = Boolean(msg.tables && msg.tables.length > 0);
+          const hasCanvases = Boolean(msg.canvases && msg.canvases.length > 0);
           const isWaitingFirstChunk =
-            msg.status === "streaming" && msg.content.length === 0 && !hasTables;
+            msg.status === "streaming" &&
+            msg.content.length === 0 &&
+            !hasTables &&
+            !hasCanvases;
           const isCopied = copiedId === msg.id;
 
           let avatarImage: string | undefined;
@@ -229,6 +246,14 @@ export function ChatMessageList({
                         key={tbl.id}
                         table={tbl}
                         onExpand={setExpandedTable}
+                      />
+                    ))}
+                  {msg.canvases &&
+                    msg.canvases.map((cv) => (
+                      <MathCanvasCard
+                        key={cv.id}
+                        canvas={cv}
+                        onExpand={setExpandedCanvas}
                       />
                     ))}
                 </div>
@@ -317,6 +342,11 @@ export function ChatMessageList({
       <DataTableModal
         table={expandedTable}
         onClose={() => setExpandedTable(null)}
+      />
+
+      <MathCanvasModal
+        canvas={expandedCanvas}
+        onClose={() => setExpandedCanvas(null)}
       />
     </div>
   );

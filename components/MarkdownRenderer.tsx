@@ -3,11 +3,18 @@
 import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { MathLatexLabel } from "@/components/MathLatexLabel";
 
 interface MarkdownRendererProps {
   content: string;
 }
 
+interface ExtractedMathEntry {
+  latex: string;
+  display: boolean;
+}
+
+const MATH_TOKEN_REGEX = /(@@MATH_(?:BLOCK|INLINE)_(\d+)@@)/g;
 const TABLE_SEPARATOR_REGEX = /^\s*\|?(?:\s*:?-{2,}:?\s*\|)+\s*:?-{2,}:?\s*\|?\s*$/;
 const TABLE_ROW_REGEX = /^\s*\|.+\|\s*$/;
 
@@ -26,10 +33,63 @@ function isMarkdownTableBlock(lines: string[]): boolean {
 }
 
 /**
- * Normalizes AI-generated Markdown so GFM comparison tables always parse reliably:
- * 1. Unwraps fenced code blocks when the AI accidentally puts a Markdown table inside ```markdown ... ```.
- * 2. Ensures blank lines before and after every GFM table outside real code blocks.
- * 3. Aligns separator column count with the header column count if needed.
+ * Extracts LaTeX math blocks and inline math outside fenced code blocks and inline backticks
+ * so CommonMark never strips backslashes (e.g. \\, \frac) and KaTeX renders cleanly.
+ */
+function extractMathPlaceholders(raw: string): {
+  text: string;
+  mathEntries: ExtractedMathEntry[];
+} {
+  const mathEntries: ExtractedMathEntry[] = [];
+  if (!raw) return { text: "", mathEntries };
+
+  const addEntry = (latex: string, display: boolean): string => {
+    const cleaned = latex.trim();
+    if (!cleaned) return "";
+    const idx = mathEntries.length;
+    mathEntries.push({ latex: cleaned, display });
+    return display ? `@@MATH_BLOCK_${idx}@@` : `@@MATH_INLINE_${idx}@@`;
+  };
+
+  // Split by fenced code blocks and inline backticks first so code snippets are untouched
+  const segments = raw.split(/(```[\s\S]*?```|`[^`\n]+`)/g);
+  const processed = segments.map((seg, segIdx) => {
+    // Odd segments are code blocks or inline code
+    if (segIdx % 2 === 1) return seg;
+
+    let out = seg;
+    // Block math: $$...$$ and \[...\]
+    out = out.replace(/\$\$([\s\S]+?)\$\$/g, (_, inner: string) =>
+      addEntry(inner, true)
+    );
+    out = out.replace(/\\\[([\s\S]+?)\\\]/g, (_, inner: string) =>
+      addEntry(inner, true)
+    );
+    // Inline math: \(...\) and $...$ (avoid matching currency like $50 or spaced $ a $)
+    out = out.replace(/\\\(([\s\S]+?)\\\)/g, (_, inner: string) =>
+      addEntry(inner, false)
+    );
+    out = out.replace(
+      /(?<!\\)\$([^\s$](?:[^$\n]*?[^\s$])?)\$/g,
+      (full, inner: string) => {
+        // Ignore pure currency figures unless they contain math operators/commands
+        if (/^\d+(?:[.,]\d+)?$/.test(inner.trim())) {
+          return full;
+        }
+        return addEntry(inner, false);
+      }
+    );
+    return out;
+  });
+
+  return { text: processed.join(""), mathEntries };
+}
+
+/**
+ * Normalizes AI-generated Markdown so headings, GFM tables, and paragraphs parse cleanly:
+ * 1. Fixes headings missing a space after # (e.g. "###หัวข้อ" -> "### หัวข้อ").
+ * 2. Unwraps fenced code blocks when the AI accidentally puts a Markdown table inside ```markdown ... ```.
+ * 3. Ensures blank lines before and after every GFM table outside real code blocks.
  */
 function normalizeMarkdownTables(raw: string): string {
   if (!raw) return "";
@@ -62,19 +122,23 @@ function normalizeMarkdownTables(raw: string): string {
     i++;
   }
 
-  // Step 2: Ensure blank lines around GFM tables outside real code fences
+  // Step 2: Normalize headings missing spaces and ensure blank lines around GFM tables
   const result: string[] = [];
   let inCodeFence = false;
   let idx = 0;
 
   while (idx < unwrappedLines.length) {
-    const line = unwrappedLines[idx];
+    let line = unwrappedLines[idx];
 
     if (/^\s*```/.test(line)) {
       inCodeFence = !inCodeFence;
       result.push(line);
       idx++;
       continue;
+    }
+
+    if (!inCodeFence) {
+      line = line.replace(/^(\s*#{1,6})([^\s#])/, "$1 $2");
     }
 
     if (
@@ -131,26 +195,95 @@ function normalizeMarkdownTables(raw: string): string {
   return result.join("\n");
 }
 
-/**
- * Safely converts `<br>` / `<br/>` tags inside Markdown table cells into real React `<br />` elements
- * without raw HTML injection.
- */
-function renderCellChildrenWithBreaks(children: React.ReactNode): React.ReactNode {
-  return React.Children.map(children, (child, childIdx) => {
-    if (typeof child === "string") {
-      if (!/<br\s*\/?>/i.test(child)) return child;
-      const segments = child.split(/<br\s*\/?>/gi);
+function renderTextWithMathAndBreaks(
+  text: string,
+  mathEntries: ExtractedMathEntry[],
+  allowBreaks: boolean,
+  keyPrefix: string
+): React.ReactNode {
+  const parts = text.split(/(@@MATH_(?:BLOCK|INLINE)_\d+@@)/g);
+  return parts.map((part, pIdx) => {
+    const tokenMatch = part.match(/^@@MATH_(BLOCK|INLINE)_(\d+)@@$/);
+    if (tokenMatch) {
+      const isDisplay = tokenMatch[1] === "BLOCK";
+      const entryIdx = Number(tokenMatch[2]);
+      const entry = mathEntries[entryIdx];
+      if (!entry) return part;
+
+      if (isDisplay) {
+        return (
+          <span
+            key={`${keyPrefix}-m-${pIdx}`}
+            className="block my-2.5 py-1 overflow-x-auto text-center"
+          >
+            <MathLatexLabel
+              content={entry.latex}
+              isLatex
+              displayMode
+            />
+          </span>
+        );
+      }
+
+      return (
+        <span key={`${keyPrefix}-m-${pIdx}`} className="inline-block align-middle mx-0.5">
+          <MathLatexLabel
+            content={entry.latex}
+            isLatex
+            displayMode={false}
+          />
+        </span>
+      );
+    }
+
+    if (allowBreaks && /<br\s*\/?>/i.test(part)) {
+      const segments = part.split(/<br\s*\/?>/gi);
       return segments.map((seg, segIdx) => (
-        <React.Fragment key={`seg-${childIdx}-${segIdx}`}>
+        <React.Fragment key={`${keyPrefix}-br-${pIdx}-${segIdx}`}>
           {seg}
           {segIdx < segments.length - 1 && <br />}
         </React.Fragment>
       ));
     }
-    if (React.isValidElement<{ children?: React.ReactNode }>(child) && child.props?.children) {
+
+    return part;
+  });
+}
+
+function renderRichChildren(
+  children: React.ReactNode,
+  mathEntries: ExtractedMathEntry[],
+  allowBreaks = false,
+  keyPrefix = "n"
+): React.ReactNode {
+  return React.Children.map(children, (child, childIdx) => {
+    if (typeof child === "string") {
+      if (
+        !MATH_TOKEN_REGEX.test(child) &&
+        (!allowBreaks || !/<br\s*\/?>/i.test(child))
+      ) {
+        return child;
+      }
+      MATH_TOKEN_REGEX.lastIndex = 0;
+      return renderTextWithMathAndBreaks(
+        child,
+        mathEntries,
+        allowBreaks,
+        `${keyPrefix}-${childIdx}`
+      );
+    }
+    if (
+      React.isValidElement<{ children?: React.ReactNode }>(child) &&
+      child.props?.children
+    ) {
       return React.cloneElement(child, {
         ...child.props,
-        children: renderCellChildrenWithBreaks(child.props.children),
+        children: renderRichChildren(
+          child.props.children,
+          mathEntries,
+          allowBreaks,
+          `${keyPrefix}-${childIdx}`
+        ),
       });
     }
     return child;
@@ -158,7 +291,9 @@ function renderCellChildrenWithBreaks(children: React.ReactNode): React.ReactNod
 }
 
 export function MarkdownRenderer({ content }: MarkdownRendererProps) {
-  const normalizedContent = normalizeMarkdownTables(content);
+  const { text: contentWithMathTokens, mathEntries } =
+    extractMathPlaceholders(content);
+  const normalizedContent = normalizeMarkdownTables(contentWithMathTokens);
 
   return (
     <div className="w-full text-[#1F1E1D] break-words">
@@ -167,34 +302,38 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
         components={{
           h1: ({ children }) => (
             <h1 className="text-2xl font-bold text-[#1F1E1D] mt-6 mb-3 first:mt-0 leading-snug tracking-tight">
-              {children}
+              {renderRichChildren(children, mathEntries)}
             </h1>
           ),
           h2: ({ children }) => (
             <h2 className="text-xl font-bold text-[#1F1E1D] mt-5 mb-2.5 first:mt-0 leading-snug tracking-tight">
-              {children}
+              {renderRichChildren(children, mathEntries)}
             </h2>
           ),
           h3: ({ children }) => (
             <h3 className="text-lg font-semibold text-[#1F1E1D] mt-4 mb-2 first:mt-0 leading-snug">
-              {children}
+              {renderRichChildren(children, mathEntries)}
             </h3>
           ),
           h4: ({ children }) => (
             <h4 className="text-base font-semibold text-[#1F1E1D] mt-3.5 mb-1.5 first:mt-0 leading-snug">
-              {children}
+              {renderRichChildren(children, mathEntries)}
             </h4>
           ),
           p: ({ children }) => (
             <p className="mb-3.5 last:mb-0 text-[15.5px] leading-[1.75] text-[#1F1E1D]">
-              {children}
+              {renderRichChildren(children, mathEntries)}
             </p>
           ),
           strong: ({ children }) => (
-            <strong className="font-bold text-[#1F1E1D]">{children}</strong>
+            <strong className="font-bold text-[#1F1E1D]">
+              {renderRichChildren(children, mathEntries)}
+            </strong>
           ),
           em: ({ children }) => (
-            <em className="italic text-[#2D2C29]">{children}</em>
+            <em className="italic text-[#2D2C29]">
+              {renderRichChildren(children, mathEntries)}
+            </em>
           ),
           ul: ({ children }) => (
             <ul className="list-disc pl-6 mb-3.5 last:mb-0 space-y-1.5 text-[15.5px] leading-[1.7] text-[#1F1E1D]">
@@ -208,12 +347,12 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
           ),
           li: ({ children }) => (
             <li className="pl-1 [&>p]:mb-1.5 [&>p:last-child]:mb-0 [&>ul]:mt-1.5 [&>ol]:mt-1.5">
-              {children}
+              {renderRichChildren(children, mathEntries)}
             </li>
           ),
           blockquote: ({ children }) => (
             <blockquote className="border-l-[3px] border-[#CFCBC2] pl-4 my-3.5 text-[#4A4843] italic">
-              {children}
+              {renderRichChildren(children, mathEntries)}
             </blockquote>
           ),
           hr: () => <hr className="my-5 border-[#E5E3DC]" />,
@@ -224,7 +363,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
               rel="noopener noreferrer"
               className="underline underline-offset-2 text-[#1F1E1D] hover:text-[#57554F] transition-colors"
             >
-              {children}
+              {renderRichChildren(children, mathEntries)}
             </a>
           ),
           pre: ({ children }) => (
@@ -265,12 +404,12 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
           ),
           th: ({ children }) => (
             <th className="px-3.5 py-2.5 font-semibold text-xs sm:text-sm text-[#1F1E1D] align-top min-w-[100px] border-r border-[#E5E3DC]/70 last:border-r-0">
-              {renderCellChildrenWithBreaks(children)}
+              {renderRichChildren(children, mathEntries, true)}
             </th>
           ),
           td: ({ children }) => (
             <td className="px-3.5 py-2.5 text-xs sm:text-sm leading-relaxed text-[#1F1E1D] align-top min-w-[100px] border-r border-[#ECEAE3]/70 last:border-r-0">
-              {renderCellChildrenWithBreaks(children)}
+              {renderRichChildren(children, mathEntries, true)}
             </td>
           ),
         }}
