@@ -233,6 +233,7 @@ export function PersonaModal({
 }: PersonaModalProps) {
   const { language } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const [isFormOpen, setIsFormOpen] = useState<boolean>(false);
   const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
@@ -249,15 +250,16 @@ export function PersonaModal({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
 
-  // Default ("เริ่มต้น") AI emotions inline editor
-  const [isDefaultEmotionsOpen, setIsDefaultEmotionsOpen] =
-    useState<boolean>(false);
-  const [defaultEmotionDrafts, setDefaultEmotionDrafts] = useState<
+  // Inline AI emotions editor shared by Default ("default") and custom personas
+  const [editingEmotionsPersonaId, setEditingEmotionsPersonaId] = useState<
+    string | null
+  >(null);
+  const [inlineEmotionDrafts, setInlineEmotionDrafts] = useState<
     EmotionDraftRowState[]
   >([]);
-  const [isSavingDefaultEmotions, setIsSavingDefaultEmotions] =
+  const [isSavingInlineEmotions, setIsSavingInlineEmotions] =
     useState<boolean>(false);
-  const [defaultEmotionError, setDefaultEmotionError] = useState<string>("");
+  const [inlineEmotionError, setInlineEmotionError] = useState<string>("");
 
   const defaultEmotions = useMemo(
     () => emotions.filter((e) => e.personaId === DEFAULT_PERSONA_KEY),
@@ -328,9 +330,20 @@ export function PersonaModal({
     }
   };
 
+  const closeInlineEmotions = () => {
+    setEditingEmotionsPersonaId(null);
+    setInlineEmotionDrafts([]);
+    setInlineEmotionError("");
+  };
+
+  const scrollToTopForm = () => {
+    requestAnimationFrame(() => {
+      scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  };
+
   const handleOpenAddForm = () => {
-    setIsDefaultEmotionsOpen(false);
-    setDefaultEmotionError("");
+    closeInlineEmotions();
     setEditingPersonaId(null);
     setNameInput("");
     setDescriptionInput("");
@@ -342,11 +355,11 @@ export function PersonaModal({
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+    scrollToTopForm();
   };
 
   const handleOpenEditForm = (persona: AiPersona) => {
-    setIsDefaultEmotionsOpen(false);
-    setDefaultEmotionError("");
+    closeInlineEmotions();
     setEditingPersonaId(persona.id);
     setNameInput(persona.name);
     setDescriptionInput(persona.description);
@@ -360,19 +373,22 @@ export function PersonaModal({
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+    scrollToTopForm();
   };
 
-  const handleToggleDefaultEmotions = () => {
-    if (isDefaultEmotionsOpen) {
-      setIsDefaultEmotionsOpen(false);
-      setDefaultEmotionError("");
-      setDefaultEmotionDrafts([]);
+  const handleToggleInlineEmotions = (targetPersonaId: string) => {
+    if (editingEmotionsPersonaId === targetPersonaId) {
+      closeInlineEmotions();
       return;
     }
     resetForm();
-    setDefaultEmotionDrafts(toDraftRows(defaultEmotions));
-    setDefaultEmotionError("");
-    setIsDefaultEmotionsOpen(true);
+    const targetEmotions = emotions.filter(
+      (e) => e.personaId === targetPersonaId
+    );
+    setInlineEmotionDrafts(toDraftRows(targetEmotions));
+    setInlineEmotionError("");
+    setConfirmDeleteId(null);
+    setEditingEmotionsPersonaId(targetPersonaId);
   };
 
   const handleAddPersonaEmotionRow = () => {
@@ -383,43 +399,45 @@ export function PersonaModal({
     ]);
   };
 
-  const handleAddDefaultEmotionRow = () => {
-    setDefaultEmotionError("");
-    setDefaultEmotionDrafts((prev) => [
+  const handleAddInlineEmotionRow = () => {
+    setInlineEmotionError("");
+    setInlineEmotionDrafts((prev) => [
       ...prev,
       { localKey: makeLocalEmotionKey(), label: "", image: "" },
     ]);
   };
 
-  const handleSaveDefaultEmotions = async (e: React.FormEvent) => {
+  const handleSaveInlineEmotions = async (
+    e: React.FormEvent,
+    targetPersonaId: string
+  ) => {
     e.preventDefault();
-    const validationErr = validateEmotionDrafts(defaultEmotionDrafts);
+    const validationErr = validateEmotionDrafts(inlineEmotionDrafts);
     if (validationErr) {
-      setDefaultEmotionError(validationErr);
+      setInlineEmotionError(validationErr);
       return;
     }
 
-    setIsSavingDefaultEmotions(true);
-    setDefaultEmotionError("");
+    setIsSavingInlineEmotions(true);
+    setInlineEmotionError("");
     try {
       await onSaveEmotionsForPersona(
-        DEFAULT_PERSONA_KEY,
-        defaultEmotionDrafts.map(({ id, label, image }) => ({
+        targetPersonaId,
+        inlineEmotionDrafts.map(({ id, label, image }) => ({
           id,
           label: label.trim(),
           image,
         }))
       );
-      setIsDefaultEmotionsOpen(false);
-      setDefaultEmotionDrafts([]);
+      closeInlineEmotions();
     } catch {
-      setDefaultEmotionError(
+      setInlineEmotionError(
         language === "en"
           ? "Unable to save emotions. Please try again."
           : "ไม่สามารถบันทึกอารมณ์ได้ กรุณาลองใหม่อีกครั้ง"
       );
     } finally {
-      setIsSavingDefaultEmotions(false);
+      setIsSavingInlineEmotions(false);
     }
   };
 
@@ -553,12 +571,94 @@ export function PersonaModal({
 
   const handleClose = () => {
     resetForm();
-    setIsDefaultEmotionsOpen(false);
-    setDefaultEmotionDrafts([]);
-    setDefaultEmotionError("");
+    closeInlineEmotions();
     setConfirmDeleteId(null);
     onClose();
   };
+
+  const renderInlineEmotionsEditor = (
+    targetPersonaId: string,
+    titleText: string
+  ) => (
+    <form
+      onSubmit={(e) => handleSaveInlineEmotions(e, targetPersonaId)}
+      className="mt-3 pt-3 border-t border-[#ECEAE3] space-y-2.5"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-[#1F1E1D]">{titleText}</span>
+        <button
+          type="button"
+          onClick={handleAddInlineEmotionRow}
+          disabled={isSavingInlineEmotions}
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#DFDDD6] bg-white hover:bg-[#EFECE4] text-xs font-medium text-[#1F1E1D] transition-colors cursor-pointer disabled:opacity-50"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>{language === "en" ? "Add Emotion" : "เพิ่มอารมณ์"}</span>
+        </button>
+      </div>
+
+      {inlineEmotionDrafts.length === 0 ? (
+        <p className="text-xs text-[#6B6A65] py-2">
+          {language === "en"
+            ? "No emotions yet. Click Add Emotion to create one."
+            : "ยังไม่มีอารมณ์ กด เพิ่มอารมณ์ เพื่อสร้างชื่ออารมณ์และอัปรูปโปรไฟล์"}
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {inlineEmotionDrafts.map((draft, idx) => (
+            <EmotionDraftRow
+              key={draft.localKey}
+              draft={draft}
+              index={idx}
+              language={language}
+              disabled={isSavingInlineEmotions}
+              onChange={(next) =>
+                setInlineEmotionDrafts((prev) =>
+                  prev.map((item) =>
+                    item.localKey === draft.localKey ? next : item
+                  )
+                )
+              }
+              onRemove={() =>
+                setInlineEmotionDrafts((prev) =>
+                  prev.filter((item) => item.localKey !== draft.localKey)
+                )
+              }
+              onProcessingChange={handleEmotionProcessingChange}
+              onError={setInlineEmotionError}
+            />
+          ))}
+        </div>
+      )}
+
+      {inlineEmotionError && (
+        <p className="text-xs text-[#1F1E1D] bg-[#EFECE4] border border-[#E5E3DC] px-3 py-2 rounded-xl">
+          {inlineEmotionError}
+        </p>
+      )}
+
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button
+          type="button"
+          onClick={closeInlineEmotions}
+          disabled={isSavingInlineEmotions}
+          className="px-3 py-1.5 rounded-xl border border-[#DFDDD6] bg-white hover:bg-[#EFECE4] text-xs font-medium text-[#1F1E1D] transition-colors cursor-pointer"
+        >
+          {language === "en" ? "Cancel" : "ยกเลิก"}
+        </button>
+        <button
+          type="submit"
+          disabled={isSavingInlineEmotions || isProcessingAnyEmotion}
+          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#1F1E1D] hover:bg-[#33322F] disabled:bg-[#DFDDD6] disabled:text-[#8C8A84] text-white text-xs font-medium transition-colors cursor-pointer disabled:cursor-not-allowed"
+        >
+          {isSavingInlineEmotions && (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          )}
+          <span>{language === "en" ? "Save Emotions" : "บันทึกอารมณ์"}</span>
+        </button>
+      </div>
+    </form>
+  );
 
   return (
     <div
@@ -611,7 +711,7 @@ export function PersonaModal({
         </div>
 
         {/* Scrollable Content */}
-        <div className="overflow-y-auto flex-1">
+        <div ref={scrollContainerRef} className="overflow-y-auto flex-1">
           {/* Top Section: Inline Create / Edit Form when open */}
           {isFormOpen && (
             <form
@@ -927,12 +1027,12 @@ export function PersonaModal({
                 <button
                   type="button"
                   id="default-emotions-toggle-btn"
-                  onClick={handleToggleDefaultEmotions}
+                  onClick={() => handleToggleInlineEmotions(DEFAULT_PERSONA_KEY)}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-[#DFDDD6] bg-white hover:bg-[#EFECE4] text-xs font-medium text-[#1F1E1D] transition-colors cursor-pointer shrink-0"
                 >
                   <Smile className="w-3.5 h-3.5" />
                   <span>
-                    {isDefaultEmotionsOpen
+                    {editingEmotionsPersonaId === DEFAULT_PERSONA_KEY
                       ? language === "en"
                         ? "Close"
                         : "ปิด"
@@ -943,100 +1043,13 @@ export function PersonaModal({
                 </button>
               </div>
 
-              {isDefaultEmotionsOpen && (
-                <form
-                  onSubmit={handleSaveDefaultEmotions}
-                  className="mt-3 pt-3 border-t border-[#ECEAE3] space-y-2.5"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium text-[#1F1E1D]">
-                      {language === "en"
-                        ? "Default AI Emotions"
-                        : "รายการอารมณ์ของเอไอเริ่มต้น"}
-                    </span>
-                    <button
-                      type="button"
-                      id="default-add-emotion-btn"
-                      onClick={handleAddDefaultEmotionRow}
-                      disabled={isSavingDefaultEmotions}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-[#DFDDD6] bg-white hover:bg-[#EFECE4] text-xs font-medium text-[#1F1E1D] transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>
-                        {language === "en" ? "Add Emotion" : "เพิ่มอารมณ์"}
-                      </span>
-                    </button>
-                  </div>
-
-                  {defaultEmotionDrafts.length === 0 ? (
-                    <p className="text-xs text-[#6B6A65] py-2">
-                      {language === "en"
-                        ? "No emotions yet. Click Add Emotion to create one."
-                        : "ยังไม่มีอารมณ์ กด เพิ่มอารมณ์ เพื่อสร้างชื่ออารมณ์และอัปรูปโปรไฟล์"}
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {defaultEmotionDrafts.map((draft, idx) => (
-                        <EmotionDraftRow
-                          key={draft.localKey}
-                          draft={draft}
-                          index={idx}
-                          language={language}
-                          disabled={isSavingDefaultEmotions}
-                          onChange={(next) =>
-                            setDefaultEmotionDrafts((prev) =>
-                              prev.map((item) =>
-                                item.localKey === draft.localKey ? next : item
-                              )
-                            )
-                          }
-                          onRemove={() =>
-                            setDefaultEmotionDrafts((prev) =>
-                              prev.filter(
-                                (item) => item.localKey !== draft.localKey
-                              )
-                            )
-                          }
-                          onProcessingChange={handleEmotionProcessingChange}
-                          onError={setDefaultEmotionError}
-                        />
-                      ))}
-                    </div>
-                  )}
-
-                  {defaultEmotionError && (
-                    <p className="text-xs text-[#1F1E1D] bg-[#EFECE4] border border-[#E5E3DC] px-3 py-2 rounded-xl">
-                      {defaultEmotionError}
-                    </p>
-                  )}
-
-                  <div className="flex items-center justify-end gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={handleToggleDefaultEmotions}
-                      disabled={isSavingDefaultEmotions}
-                      className="px-3 py-1.5 rounded-xl border border-[#DFDDD6] bg-white hover:bg-[#EFECE4] text-xs font-medium text-[#1F1E1D] transition-colors cursor-pointer"
-                    >
-                      {language === "en" ? "Cancel" : "ยกเลิก"}
-                    </button>
-                    <button
-                      type="submit"
-                      id="default-emotions-save-btn"
-                      disabled={
-                        isSavingDefaultEmotions || isProcessingAnyEmotion
-                      }
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#1F1E1D] hover:bg-[#33322F] disabled:bg-[#DFDDD6] disabled:text-[#8C8A84] text-white text-xs font-medium transition-colors cursor-pointer disabled:cursor-not-allowed"
-                    >
-                      {isSavingDefaultEmotions && (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      )}
-                      <span>
-                        {language === "en" ? "Save Emotions" : "บันทึกอารมณ์"}
-                      </span>
-                    </button>
-                  </div>
-                </form>
-              )}
+              {editingEmotionsPersonaId === DEFAULT_PERSONA_KEY &&
+                renderInlineEmotionsEditor(
+                  DEFAULT_PERSONA_KEY,
+                  language === "en"
+                    ? "Default AI Emotions"
+                    : "รายการอารมณ์ของเอไอเริ่มต้น"
+                )}
             </div>
 
             {isLoading ? (
@@ -1121,8 +1134,8 @@ export function PersonaModal({
                       </div>
                     </div>
 
-                    {/* Monochrome Edit & Delete Controls */}
-                    <div className="mt-3 pt-2.5 border-t border-[#ECEAE3] flex items-center justify-between gap-2">
+                    {/* Monochrome Emotions, Edit & Delete Controls */}
+                    <div className="mt-3 pt-2.5 border-t border-[#ECEAE3] flex flex-wrap items-center justify-between gap-2">
                       <button
                         type="button"
                         onClick={() =>
@@ -1164,7 +1177,23 @@ export function PersonaModal({
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center gap-1">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleInlineEmotions(persona.id)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-[#1F1E1D] hover:bg-[#EFECE4] transition-colors cursor-pointer"
+                          >
+                            <Smile className="w-3.5 h-3.5" />
+                            <span>
+                              {editingEmotionsPersonaId === persona.id
+                                ? language === "en"
+                                  ? "Close Emotions"
+                                  : "ปิดอารมณ์"
+                                : language === "en"
+                                  ? "Emotions"
+                                  : "ตั้งค่าอารมณ์"}
+                            </span>
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleOpenEditForm(persona)}
@@ -1186,6 +1215,14 @@ export function PersonaModal({
                         </div>
                       )}
                     </div>
+
+                    {editingEmotionsPersonaId === persona.id &&
+                      renderInlineEmotionsEditor(
+                        persona.id,
+                        language === "en"
+                          ? `Emotions for ${persona.name}`
+                          : `รายการอารมณ์ของ ${persona.name}`
+                      )}
                   </div>
                 );
               })
