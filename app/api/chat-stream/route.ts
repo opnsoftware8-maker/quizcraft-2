@@ -861,7 +861,7 @@ CRITICAL BEHAVIOR RULES FOR THIS PERSONA:
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
         } catch (streamErr: any) {
-          console.error("Chat streaming error:", streamErr);
+          console.warn("Chat streaming fallback exhausted:", streamErr?.message || streamErr);
           const errMessage =
             streamErr?.message ||
             (language === "en"

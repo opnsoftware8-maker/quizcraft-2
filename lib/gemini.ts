@@ -48,18 +48,42 @@ export const TEXT_MODELS = [
   "gemini-3.1-flash-lite",
 ];
 
-function isHighDemandError(error: any): boolean {
-  const errStr = String(error?.message || error?.toString() || "");
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getErrorInfo(error: any): { msg: string; lower: string; code: unknown } {
+  const msg = String(error?.message || error?.toString() || "");
   const code = error?.status || error?.code || error?.error?.code;
+  return { msg, lower: msg.toLowerCase(), code };
+}
+
+export function isHighDemandError(error: any): boolean {
+  const { lower, code } = getErrorInfo(error);
   return (
     code === 503 ||
     code === 429 ||
-    errStr.includes("503") ||
-    errStr.includes("429") ||
-    errStr.includes("UNAVAILABLE") ||
-    errStr.includes("high demand") ||
-    errStr.includes("resource exhausted") ||
-    errStr.includes("overloaded")
+    lower.includes("503") ||
+    lower.includes("429") ||
+    lower.includes("unavailable") ||
+    lower.includes("high demand") ||
+    lower.includes("resource_exhausted") ||
+    lower.includes("resource exhausted") ||
+    lower.includes("too many requests") ||
+    lower.includes("overloaded") ||
+    lower.includes("quota")
+  );
+}
+
+function isAuthOrKeyError(error: any): boolean {
+  const { lower, code } = getErrorInfo(error);
+  return (
+    code === 401 ||
+    code === 403 ||
+    lower.includes("api_key_invalid") ||
+    lower.includes("api key not valid") ||
+    lower.includes("permission_denied") ||
+    lower.includes("unauthenticated")
   );
 }
 
@@ -69,51 +93,91 @@ export async function generateContentWithFallback(options: {
   models?: string[];
   apiKey?: string;
 }) {
-  const models = options.models && options.models.length > 0 ? options.models : TEXT_MODELS;
+  const models =
+    options.models && options.models.length > 0 ? options.models : TEXT_MODELS;
   let lastError: any = null;
+  let lastHighDemandError: any = null;
   const client = getAiClient(options.apiKey);
 
-  for (let m = 0; m < models.length; m++) {
-    const model = models[m];
-    try {
-      const response = await client.models.generateContent({
-        model,
-        contents: options.contents,
-        config: options.config,
-      });
+  const retryDelaysMs = [0, 900, 1800];
 
-      if (response && response.text) {
-        return response;
+  for (let pass = 0; pass < retryDelaysMs.length; pass++) {
+    if (pass > 0) {
+      if (!lastHighDemandError) break;
+      const jitter = Math.floor(Math.random() * 250);
+      await sleep(retryDelaysMs[pass] + jitter);
+    }
+
+    const passModels =
+      pass === 0
+        ? models
+        : Array.from(
+            new Set(
+              [
+                models[0],
+                "gemini-3.1-flash-lite",
+                "gemini-flash-latest",
+                "gemini-4-hydrogen",
+              ].filter((m): m is string => Boolean(m) && models.includes(m))
+            )
+          );
+
+    for (let m = 0; m < passModels.length; m++) {
+      const model = passModels[m];
+      try {
+        const response = await client.models.generateContent({
+          model,
+          contents: options.contents,
+          config: options.config,
+        });
+
+        if (response && response.text) {
+          return response;
+        }
+      } catch (err: any) {
+        lastError = err;
+
+        if (isAuthOrKeyError(err)) {
+          pass = retryDelaysMs.length;
+          break;
+        }
+
+        if (isHighDemandError(err)) {
+          lastHighDemandError = err;
+        }
       }
-    } catch (err: any) {
-      lastError = err;
-
-      // If high demand or unavailable on this model, immediately try next model without delay
-      if (isHighDemandError(err)) {
-        continue;
-      }
-
-      // If non-transient, continue to next model as fallback
-      continue;
     }
   }
 
-  // If all models failed, log error and throw user-friendly error
-  console.error("All Gemini models failed to generate content:", lastError?.message || lastError);
+  const finalError = lastHighDemandError || lastError;
+  console.warn(
+    "All Gemini models failed to generate content:",
+    finalError?.message || finalError
+  );
 
-  if (lastError && isHighDemandError(lastError)) {
+  if (finalError && isAuthOrKeyError(finalError)) {
+    throw new Error(
+      "Gemini API Key ไม่ถูกต้องหรือไม่มีสิทธิ์เข้าถึงโมเดล กรุณาตรวจสอบรหัส API Key ในหน้าต่างตั้งค่า"
+    );
+  }
+
+  if (finalError && isHighDemandError(finalError)) {
     throw new Error(
       "โมเดล AI กำลังมีผู้ใช้งานหนาแน่นชั่วคราว (Model High Demand) กรุณากดปุ่มลองใหม่อีกครั้งในไม่กี่วินาที"
     );
   }
 
-  // Provide helpful feedback if custom key is invalid
-  const errMsg = String(lastError?.message || "");
-  if (errMsg.includes("API_KEY_INVALID") || errMsg.includes("API key not valid") || errMsg.includes("400")) {
-    throw new Error("Gemini API Key ไม่ถูกต้อง กรุณาตรวจสอบรหัส API Key ในหน้าต่างตั้งค่า");
+  const errMsg = String(finalError?.message || "");
+  if (errMsg.includes("400")) {
+    throw new Error(
+      "Gemini API Key ไม่ถูกต้อง กรุณาตรวจสอบรหัส API Key ในหน้าต่างตั้งค่า"
+    );
   }
 
-  throw lastError || new Error("ไม่สามารถประมวลผลผ่านระบบ AI ได้ กรุณาลองใหม่อีกครั้ง");
+  throw (
+    finalError ||
+    new Error("ไม่สามารถประมวลผลผ่านระบบ AI ได้ กรุณาลองใหม่อีกครั้ง")
+  );
 }
 
 export async function generateChatStreamWithFallback(options: {
@@ -124,44 +188,87 @@ export async function generateChatStreamWithFallback(options: {
 }) {
   const defaultStreamModels = ["gemini-4-hydrogen", ...TEXT_MODELS];
   const models =
-    options.models && options.models.length > 0 ? options.models : defaultStreamModels;
+    options.models && options.models.length > 0
+      ? options.models
+      : defaultStreamModels;
   let lastError: any = null;
+  let lastHighDemandError: any = null;
   const client = getAiClient(options.apiKey);
 
-  for (let m = 0; m < models.length; m++) {
-    const model = models[m];
-    try {
-      const stream = await client.models.generateContentStream({
-        model,
-        contents: options.contents,
-        config: options.config,
-      });
-      return { stream, model };
-    } catch (err: any) {
-      lastError = err;
-      if (isHighDemandError(err)) {
-        continue;
+  const retryDelaysMs = [0, 900, 1800];
+
+  for (let pass = 0; pass < retryDelaysMs.length; pass++) {
+    if (pass > 0) {
+      if (!lastHighDemandError) break;
+      const jitter = Math.floor(Math.random() * 250);
+      await sleep(retryDelaysMs[pass] + jitter);
+    }
+
+    const passModels =
+      pass === 0
+        ? models
+        : Array.from(
+            new Set(
+              [
+                "gemini-4-hydrogen",
+                "gemini-3.1-flash-lite",
+                "gemini-flash-latest",
+                models[0],
+              ].filter((m): m is string => Boolean(m) && models.includes(m))
+            )
+          );
+
+    for (let m = 0; m < passModels.length; m++) {
+      const model = passModels[m];
+      try {
+        const stream = await client.models.generateContentStream({
+          model,
+          contents: options.contents,
+          config: options.config,
+        });
+        return { stream, model };
+      } catch (err: any) {
+        lastError = err;
+
+        if (isAuthOrKeyError(err)) {
+          pass = retryDelaysMs.length;
+          break;
+        }
+
+        if (isHighDemandError(err)) {
+          lastHighDemandError = err;
+        }
       }
-      continue;
     }
   }
 
-  console.error("All Gemini models failed to stream content:", lastError?.message || lastError);
+  const finalError = lastHighDemandError || lastError;
+  console.warn(
+    "All Gemini models failed to stream content:",
+    finalError?.message || finalError
+  );
 
-  if (lastError && isHighDemandError(lastError)) {
+  if (finalError && isAuthOrKeyError(finalError)) {
+    throw new Error(
+      "Gemini API Key ไม่ถูกต้องหรือไม่มีสิทธิ์เข้าถึงโมเดล กรุณาตรวจสอบรหัส API Key ในหน้าต่างตั้งค่า"
+    );
+  }
+
+  if (finalError && isHighDemandError(finalError)) {
     throw new Error(
       "โมเดล AI กำลังมีผู้ใช้งานหนาแน่นชั่วคราว (Model High Demand) กรุณากดปุ่มลองใหม่อีกครั้งในไม่กี่วินาที"
     );
   }
 
-  const errMsg = String(lastError?.message || "");
-  if (
-    errMsg.includes("API_KEY_INVALID") ||
-    errMsg.includes("API key not valid") ||
-    errMsg.includes("400")
-  ) {
-    throw new Error("Gemini API Key ไม่ถูกต้อง กรุณาตรวจสอบรหัส API Key ในหน้าต่างตั้งค่า");
+  const errMsg = String(finalError?.message || "");
+  if (errMsg.includes("400")) {
+    throw new Error(
+      "Gemini API Key ไม่ถูกต้อง กรุณาตรวจสอบรหัส API Key ในหน้าต่างตั้งค่า"
+    );
   }
 
-  throw lastError || new Error("ไม่สามารถเชื่อมต่อระบบสนทนา AI ได้ กรุณาลองใหม่อีกครั้ง");
+  throw (
+    finalError ||
+    new Error("ไม่สามารถเชื่อมต่อระบบสนทนา AI ได้ กรุณาลองใหม่อีกครั้ง")
+  );
 }
