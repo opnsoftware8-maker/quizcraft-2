@@ -43,8 +43,8 @@ export interface AiPersona {
   createdAtMs: number;
 }
 
-export const MAX_PERSONA_NAME_LENGTH = 60;
-export const MAX_PERSONA_DESCRIPTION_LENGTH = 600;
+export const MAX_PERSONA_NAME_LENGTH = 120;
+export const MAX_PERSONA_DESCRIPTION_LENGTH = 50000;
 export const MAX_PERSONA_IMAGE_LENGTH = 60000;
 const SAFE_ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
 const SAFE_DATA_IMAGE_PATTERN =
@@ -67,7 +67,7 @@ export function clampPersonaName(name: string): string {
 }
 
 export function clampPersonaDescription(description: string): string {
-  const cleaned = description.trim();
+  const cleaned = description.replace(/\r\n?/g, "\n").trim();
   if (!cleaned) return " ";
   return cleaned.length > MAX_PERSONA_DESCRIPTION_LENGTH
     ? cleaned.slice(0, MAX_PERSONA_DESCRIPTION_LENGTH)

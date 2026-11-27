@@ -64,10 +64,10 @@ service cloud.firestore {
         && data.userId == request.auth.uid
         && data.name is string
         && data.name.size() >= 1
-        && data.name.size() <= 60
+        && data.name.size() <= 120
         && data.description is string
         && data.description.size() >= 1
-        && data.description.size() <= 600
+        && data.description.size() <= 50000
         && data.profileIcon in ['user', 'graduation-cap', 'book-open', 'glasses', 'compass', 'feather', 'award']
         && (!('profileImage' in data) || (
           data.profileImage is string

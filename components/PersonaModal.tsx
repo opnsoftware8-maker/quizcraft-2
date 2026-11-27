@@ -403,17 +403,23 @@ export function PersonaModal({
 
               {/* Persona Behavior Description */}
               <div className="space-y-1.5">
-                <label
-                  htmlFor="persona-description-input"
-                  className="block text-xs font-medium text-[#1F1E1D]"
-                >
-                  {language === "en"
-                    ? "Personality & Teaching Style"
-                    : "นิสัยและคำอธิบายสไตล์การสอน"}
-                </label>
+                <div className="flex items-center justify-between gap-2">
+                  <label
+                    htmlFor="persona-description-input"
+                    className="block text-xs font-medium text-[#1F1E1D]"
+                  >
+                    {language === "en"
+                      ? "Personality & Teaching Style"
+                      : "นิสัยและคำอธิบายสไตล์การสอน"}
+                  </label>
+                  <span className="text-[11px] text-[#6B6A65] tabular-nums">
+                    {descriptionInput.length.toLocaleString()} /{" "}
+                    {MAX_PERSONA_DESCRIPTION_LENGTH.toLocaleString()}
+                  </span>
+                </div>
                 <textarea
                   id="persona-description-input"
-                  rows={3}
+                  rows={6}
                   maxLength={MAX_PERSONA_DESCRIPTION_LENGTH}
                   value={descriptionInput}
                   onChange={(e) => {
@@ -422,10 +428,10 @@ export function PersonaModal({
                   }}
                   placeholder={
                     language === "en"
-                      ? "Describe tone, pacing, and teaching approach concisely..."
-                      : "อธิบายนิสัย น้ำเสียง วิธีอธิบายหรือสอนสั้นๆ ให้ชัดเจน..."
+                      ? "Paste or describe personality traits, tone, and teaching instructions..."
+                      : "วางหรืออธิบายนิสัย ตัวตน น้ำเสียง และสไตล์การสอนของเอไอ..."
                   }
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#DFDDD6] bg-white text-[#1F1E1D] text-[16px] placeholder:text-[#8C8A84] focus:outline-none focus:border-[#1F1E1D] transition-colors resize-none"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#DFDDD6] bg-white text-[#1F1E1D] text-[16px] leading-relaxed placeholder:text-[#8C8A84] focus:outline-none focus:border-[#1F1E1D] transition-colors resize-y min-h-[140px] max-h-[340px] overflow-y-auto"
                   disabled={isSaving}
                 />
               </div>
@@ -547,7 +553,7 @@ export function PersonaModal({
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-[#6B6A65] mt-1 leading-relaxed break-words">
+                        <p className="text-xs text-[#6B6A65] mt-1 leading-relaxed break-words whitespace-pre-wrap max-h-44 overflow-y-auto">
                           {persona.description}
                         </p>
                       </div>

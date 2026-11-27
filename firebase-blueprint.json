@@ -78,14 +78,14 @@
         "name": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 60,
+          "maxLength": 120,
           "description": "Display name of the AI teacher persona."
         },
         "description": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 600,
-          "description": "Concise personality traits and teaching instructions."
+          "maxLength": 50000,
+          "description": "Detailed personality traits, character prompt, and teaching instructions."
         },
         "profileIcon": {
           "type": "string",

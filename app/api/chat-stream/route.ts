@@ -329,11 +329,11 @@ export async function POST(req: NextRequest) {
     const rawPersona = body?.persona;
     const personaName =
       rawPersona && typeof rawPersona.name === "string"
-        ? rawPersona.name.trim().slice(0, 60)
+        ? rawPersona.name.trim().slice(0, 120)
         : "";
     const personaDescription =
       rawPersona && typeof rawPersona.description === "string"
-        ? rawPersona.description.trim().slice(0, 600)
+        ? rawPersona.description.trim().slice(0, 50000)
         : "";
 
     const validMessages = rawMessages.filter(

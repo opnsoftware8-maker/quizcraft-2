@@ -5,7 +5,7 @@
 2. **PII Protection**: Email addresses stored in `/users/{userId}` are readable only by the owner (`get` only; `list` on `/users` is strictly denied).
 3. **Referential Integrity (Master Gate)**: A message cannot be created or updated unless its parent chat (`/users/{userId}/chats/{chatId}`) exists (or is created atomically in the same batch via `existsAfter`). A chat, persona, or study history item cannot be created unless the parent user profile exists.
 4. **Immutable Ownership & Timestamps**: `uid`, `userId`, `chatId`, `id`, and `createdAt` can never be changed after creation. All `createdAt`/`updatedAt` timestamps must match `request.time`.
-5. **Strict Field Allowlisting & Size Bounds**: Every document write validates exact keys (`hasAll` + `hasOnly` on create, `affectedKeys().hasOnly(...)` on update), valid ID regex (`^[a-zA-Z0-9_-]+$`), explicit string length limits (`name` <= 60, `description` <= 600, `profileImage` <= 60000, `studyHistory.title` <= 200, `studyHistory.content` <= 50000), and strict enum (`summary` | `quiz`) and image data URL validation.
+5. **Strict Field Allowlisting & Size Bounds**: Every document write validates exact keys (`hasAll` + `hasOnly` on create, `affectedKeys().hasOnly(...)` on update), valid ID regex (`^[a-zA-Z0-9_-]+$`), explicit string length limits (`name` <= 120, `description` <= 50000, `profileImage` <= 60000, `studyHistory.title` <= 200, `studyHistory.content` <= 50000), and strict enum (`summary` | `quiz`) and image data URL validation.
 
 ## 2. Adversarial "Dirty Dozen" Payloads (Expected: `PERMISSION_DENIED`)
 1. **Unauthenticated Profile Write**: `{ uid: "userA", ... }` with `request.auth == null`.
