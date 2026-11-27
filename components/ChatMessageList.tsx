@@ -20,21 +20,34 @@ import {
 import dynamic from "next/dynamic";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { PersonaAvatar } from "@/components/PersonaAvatarIcon";
+import { retryDynamicImport } from "@/lib/chunk-recovery";
 
 const DataTableCard = dynamic(
-  () => import("@/components/DataTableCard").then((m) => m.DataTableCard),
+  () =>
+    retryDynamicImport(() =>
+      import("@/components/DataTableCard").then((m) => m.DataTableCard)
+    ),
   { ssr: false }
 );
 const DataTableModal = dynamic(
-  () => import("@/components/DataTableModal").then((m) => m.DataTableModal),
+  () =>
+    retryDynamicImport(() =>
+      import("@/components/DataTableModal").then((m) => m.DataTableModal)
+    ),
   { ssr: false }
 );
 const MathCanvasCard = dynamic(
-  () => import("@/components/MathCanvasCard").then((m) => m.MathCanvasCard),
+  () =>
+    retryDynamicImport(() =>
+      import("@/components/MathCanvasCard").then((m) => m.MathCanvasCard)
+    ),
   { ssr: false }
 );
 const MathCanvasModal = dynamic(
-  () => import("@/components/MathCanvasModal").then((m) => m.MathCanvasModal),
+  () =>
+    retryDynamicImport(() =>
+      import("@/components/MathCanvasModal").then((m) => m.MathCanvasModal)
+    ),
   { ssr: false }
 );
 import { AiPersona, AiEmotion } from "@/lib/firestore-personas";

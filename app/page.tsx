@@ -17,25 +17,41 @@ import { type ChatUploadedFile, MAX_CHAT_FILES } from "@/lib/chat-files";
 import { tableToTsv } from "@/lib/structured-table";
 import { useLanguage } from "@/lib/language-context";
 import { useFirebase } from "@/lib/firebase-context";
+import { retryDynamicImport } from "@/lib/chunk-recovery";
 
 const LearningStudio = dynamic(
-  () => import("@/components/LearningStudio").then((m) => m.LearningStudio),
+  () =>
+    retryDynamicImport(() =>
+      import("@/components/LearningStudio").then((m) => m.LearningStudio)
+    ),
   { ssr: false }
 );
 const ApiKeyModal = dynamic(
-  () => import("@/components/ApiKeyModal").then((m) => m.ApiKeyModal),
+  () =>
+    retryDynamicImport(() =>
+      import("@/components/ApiKeyModal").then((m) => m.ApiKeyModal)
+    ),
   { ssr: false }
 );
 const PersonaModal = dynamic(
-  () => import("@/components/PersonaModal").then((m) => m.PersonaModal),
+  () =>
+    retryDynamicImport(() =>
+      import("@/components/PersonaModal").then((m) => m.PersonaModal)
+    ),
   { ssr: false }
 );
 const StudyHistoryModal = dynamic(
-  () => import("@/components/StudyHistoryModal").then((m) => m.StudyHistoryModal),
+  () =>
+    retryDynamicImport(() =>
+      import("@/components/StudyHistoryModal").then((m) => m.StudyHistoryModal)
+    ),
   { ssr: false }
 );
 const FeedbackModal = dynamic(
-  () => import("@/components/FeedbackModal").then((m) => m.FeedbackModal),
+  () =>
+    retryDynamicImport(() =>
+      import("@/components/FeedbackModal").then((m) => m.FeedbackModal)
+    ),
   { ssr: false }
 );
 
