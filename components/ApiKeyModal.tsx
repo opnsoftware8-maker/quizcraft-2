@@ -6,6 +6,7 @@ import {
   getStoredCustomApiKey,
   setStoredCustomApiKey,
   removeStoredCustomApiKey,
+  isValidGeminiApiKeyFormat,
 } from "@/lib/custom-key";
 import { useLanguage } from "@/lib/language-context";
 
@@ -64,13 +65,13 @@ export function ApiKeyModal({ isOpen, onClose, onKeyChange }: ApiKeyModalProps) 
       return;
     }
 
-    if (!trimmed.startsWith("AIza")) {
+    if (!isValidGeminiApiKeyFormat(trimmed)) {
       setVerifyStatus({
         type: "error",
         message:
           language === "en"
-            ? "Invalid format: Gemini API Keys typically begin with 'AIza...'."
-            : "รูปแบบไม่ถูกต้อง: Gemini API Key มักเริ่มต้นด้วย 'AIza...'",
+            ? "Invalid format: Gemini API Keys typically begin with 'AQ.' or 'AIza...'."
+            : "รูปแบบไม่ถูกต้อง: Gemini API Key มักเริ่มต้นด้วย 'AQ.' หรือ 'AIza...'",
       });
       return;
     }
@@ -218,7 +219,7 @@ export function ApiKeyModal({ isOpen, onClose, onKeyChange }: ApiKeyModalProps) 
                   setApiKeyInput(e.target.value);
                   setVerifyStatus({ type: "idle", message: "" });
                 }}
-                placeholder="AIza..."
+                placeholder="AQ.Ab8RN6... / AIza..."
                 className="w-full pl-3.5 pr-11 py-2.5 rounded-xl border border-[#DFDDD6] bg-white text-[#1F1E1D] text-[16px] font-mono placeholder:text-[#8C8A84] focus:outline-none focus:border-[#1F1E1D] transition-colors"
                 autoComplete="off"
                 spellCheck={false}
@@ -329,8 +330,8 @@ export function ApiKeyModal({ isOpen, onClose, onKeyChange }: ApiKeyModalProps) 
                 </li>
                 <li>
                   {language === "en"
-                    ? 'Click "Create API key" and copy the AIza... code.'
-                    : 'กด "Create API key" แล้วคัดลอกรหัสที่ขึ้นต้นด้วย AIza...'}
+                    ? 'Click "Create API key" and copy your key (e.g. AQ.... or AIza...).'
+                    : 'กด "Create API key" แล้วคัดลอกรหัสคีย์ที่ได้ (เช่น AQ.... หรือ AIza...)'}
                 </li>
                 <li>
                   {language === "en"

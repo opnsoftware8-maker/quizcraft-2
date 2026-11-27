@@ -253,7 +253,7 @@ export const DICTIONARY = {
     // Modals
     apiKeyTitle: "Gemini API Key Settings",
     apiKeyDesc: "Provide your own Gemini API key for higher rate limits and uninterrupted access.",
-    apiKeyPlaceholder: "Paste your AI Studio API key (AIza...)",
+    apiKeyPlaceholder: "Paste your AI Studio API key (AQ.... or AIza...)",
     apiKeySaveBtn: "Save Key",
     apiKeyRemoveBtn: "Use Default Key",
     apiKeyStatusCustom: "Using Custom Key",
@@ -457,7 +457,7 @@ export const DICTIONARY = {
     // Modals
     apiKeyTitle: "ตั้งค่า Gemini API Key ส่วนตัว",
     apiKeyDesc: "ระบุ API Key ของคุณเพื่อโควตาการใช้งานที่สูงขึ้นและทำงานได้ต่อเนื่องไม่มีสะดุด",
-    apiKeyPlaceholder: "วาง AI Studio API Key ของคุณ (AIza...)",
+    apiKeyPlaceholder: "วาง AI Studio API Key ของคุณ (AQ.... หรือ AIza...)",
     apiKeySaveBtn: "บันทึก API Key",
     apiKeyRemoveBtn: "ใช้ระบบมาตรฐาน",
     apiKeyStatusCustom: "กำลังใช้ Custom Key ส่วนตัว",
