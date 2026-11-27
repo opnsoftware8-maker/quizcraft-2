@@ -119,11 +119,18 @@ interface ActivePersonaOption {
   description: string;
 }
 
+interface ActiveEmotionOption {
+  id: string;
+  label: string;
+  image: string;
+}
+
 interface UseChatStreamOptions {
   customApiKey: string | null;
   language: Language;
   userId?: string | null;
   activePersona?: ActivePersonaOption | null;
+  activeEmotions?: ActiveEmotionOption[];
   chatMode?: ChatMode;
 }
 
@@ -132,6 +139,7 @@ export function useChatStream({
   language,
   userId,
   activePersona = null,
+  activeEmotions = [],
   chatMode = "tutor",
 }: UseChatStreamOptions) {
   const storageOwnerId = userId || "local";
@@ -147,6 +155,7 @@ export function useChatStream({
   const activeChatIdRef = useRef<string | null>(null);
   const savedChatsRef = useRef<SavedChatSession[]>(savedChats);
   const activePersonaRef = useRef<ActivePersonaOption | null>(activePersona);
+  const activeEmotionsRef = useRef<ActiveEmotionOption[]>(activeEmotions);
   const chatModeRef = useRef<ChatMode>(chatMode);
 
   useEffect(() => {
@@ -160,6 +169,10 @@ export function useChatStream({
   useEffect(() => {
     activePersonaRef.current = activePersona;
   }, [activePersona]);
+
+  useEffect(() => {
+    activeEmotionsRef.current = activeEmotions;
+  }, [activeEmotions]);
 
   useEffect(() => {
     chatModeRef.current = chatMode;
@@ -247,6 +260,8 @@ export function useChatStream({
       let accumulatedText = "";
       let accumulatedTables: StructuredTableData[] = [];
       let accumulatedCanvases: MathCanvasData[] = [];
+      let selectedEmotion: { id: string; label: string; image: string } | null =
+        null;
       let currentStage: ThinkingStage = "analyzing";
       let hasServerStageOrOutput = false;
       let stageTimer1: number | null = null;
@@ -301,12 +316,41 @@ export function useChatStream({
                   content,
                   status,
                   thinkingStage: status === "streaming" ? currentStage : undefined,
+                  ...(selectedEmotion
+                    ? {
+                        emotionId: selectedEmotion.id,
+                        emotionLabel: selectedEmotion.label,
+                        emotionImage: selectedEmotion.image,
+                      }
+                    : {}),
                   ...(accumulatedTables.length > 0
                     ? { tables: accumulatedTables }
                     : {}),
                   ...(accumulatedCanvases.length > 0
                     ? { canvases: accumulatedCanvases }
                     : {}),
+                }
+              : m
+          );
+          messagesRef.current = next;
+          return next;
+        });
+      };
+
+      const applyEmotionToTarget = (emotion: {
+        id: string;
+        label: string;
+        image: string;
+      }) => {
+        selectedEmotion = emotion;
+        setMessages((prev) => {
+          const next = prev.map((m) =>
+            m.id === targetAiId
+              ? {
+                  ...m,
+                  emotionId: emotion.id,
+                  emotionLabel: emotion.label,
+                  emotionImage: emotion.image,
                 }
               : m
           );
@@ -406,6 +450,7 @@ export function useChatStream({
 
       try {
         const currentPersona = activePersonaRef.current;
+        const currentEmotions = activeEmotionsRef.current;
         const response = await fetch("/api/chat-stream", {
           method: "POST",
           headers: {
@@ -423,6 +468,13 @@ export function useChatStream({
                   description: currentPersona.description,
                 }
               : undefined,
+            emotions:
+              currentEmotions.length > 0
+                ? currentEmotions.map((em) => ({
+                    id: em.id,
+                    label: em.label,
+                  }))
+                : undefined,
           }),
           signal: controller.signal,
         });
@@ -488,6 +540,26 @@ export function useChatStream({
                   hasServerStageOrOutput = true;
                   clearStageTimers();
                   updateTargetStage(parsed.status as ThinkingStage);
+                }
+                if (
+                  parsed?.emotion &&
+                  typeof parsed.emotion.label === "string" &&
+                  parsed.emotion.label.trim().length > 0
+                ) {
+                  const emotionId =
+                    typeof parsed.emotion.id === "string" ? parsed.emotion.id : "";
+                  const emotionLabel = parsed.emotion.label.trim();
+                  const matched =
+                    activeEmotionsRef.current.find(
+                      (em) =>
+                        (emotionId && em.id === emotionId) ||
+                        em.label.toLowerCase() === emotionLabel.toLowerCase()
+                    ) || null;
+                  applyEmotionToTarget({
+                    id: matched?.id || emotionId,
+                    label: matched?.label || emotionLabel,
+                    image: matched?.image || "",
+                  });
                 }
                 if (typeof parsed?.chunk === "string" && parsed.chunk.length > 0) {
                   hasServerStageOrOutput = true;
@@ -903,6 +975,9 @@ export function useChatStream({
                 content: "",
                 tables: undefined,
                 canvases: undefined,
+                emotionId: undefined,
+                emotionLabel: undefined,
+                emotionImage: undefined,
                 personaId: currentPersona ? currentPersona.id : "",
                 personaName: currentPersona ? currentPersona.name : "",
                 thinkingStage: "analyzing" as const,

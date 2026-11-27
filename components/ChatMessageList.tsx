@@ -37,7 +37,7 @@ const MathCanvasModal = dynamic(
   () => import("@/components/MathCanvasModal").then((m) => m.MathCanvasModal),
   { ssr: false }
 );
-import { AiPersona } from "@/lib/firestore-personas";
+import { AiPersona, AiEmotion } from "@/lib/firestore-personas";
 import { useLanguage } from "@/lib/language-context";
 import { StructuredTableData, tableToTsv } from "@/lib/structured-table";
 import { MathCanvasData } from "@/lib/math-canvas";
@@ -70,6 +70,9 @@ export interface ChatMessage {
   canvases?: MathCanvasData[];
   personaId?: string;
   personaName?: string;
+  emotionId?: string;
+  emotionLabel?: string;
+  emotionImage?: string;
   thinkingStage?: ThinkingStage;
   status: "streaming" | "done" | "error";
   feedback: "up" | "down" | null;
@@ -82,6 +85,7 @@ interface ChatMessageListProps {
   onCreateQuizFromMessage?: (msg: ChatMessage) => void;
   onSummarizeFromMessage?: (msg: ChatMessage) => void;
   personas?: AiPersona[];
+  emotions?: AiEmotion[];
   activePersona?: AiPersona | null;
 }
 
@@ -334,13 +338,18 @@ const MemoizedChatMessageRow = React.memo(function ChatMessageRow({
 
   return (
     <div className="flex flex-col items-start w-full">
-      {/* Persona Profile Avatar above AI response bubble */}
-      <div className="mb-1.5 flex items-center">
+      {/* Persona / Emotion Profile Avatar above AI response bubble */}
+      <div className="mb-1.5 flex items-center gap-2">
         <PersonaAvatar
           profileImage={avatarImage}
-          alt={avatarAlt}
-          sizeClass="w-8 h-8"
+          alt={msg.emotionLabel ? `${avatarAlt} (${msg.emotionLabel})` : avatarAlt}
+          sizeClass={msg.emotionLabel ? "w-9 h-9" : "w-8 h-8"}
         />
+        {msg.emotionLabel && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-white border border-[#E5E3DC] text-[11px] font-medium text-[#1F1E1D]">
+            {msg.emotionLabel}
+          </span>
+        )}
       </div>
 
       <div className="w-full">
@@ -502,6 +511,7 @@ export function ChatMessageList({
   onCreateQuizFromMessage,
   onSummarizeFromMessage,
   personas = [],
+  emotions = [],
   activePersona = null,
 }: ChatMessageListProps) {
   const { language } = useLanguage();
@@ -598,6 +608,11 @@ export function ChatMessageList({
           let avatarImage: string | undefined;
           let avatarAlt = "AI";
           if (msg.role === "assistant") {
+            const targetPersonaKey =
+              msg.personaId !== undefined
+                ? msg.personaId || "default"
+                : activePersona?.id || "default";
+
             if (msg.personaId !== undefined) {
               if (msg.personaId === "") {
                 avatarImage = "";
@@ -610,6 +625,22 @@ export function ChatMessageList({
             } else {
               avatarImage = activePersona?.profileImage || "";
               avatarAlt = activePersona?.name || "AI";
+            }
+
+            if (msg.emotionId || msg.emotionLabel) {
+              const matchedEmotion =
+                emotions.find((e) => msg.emotionId && e.id === msg.emotionId) ||
+                emotions.find(
+                  (e) =>
+                    e.personaId === targetPersonaKey &&
+                    msg.emotionLabel &&
+                    e.label.toLowerCase() === msg.emotionLabel.toLowerCase()
+                );
+              if (matchedEmotion?.image) {
+                avatarImage = matchedEmotion.image;
+              } else if (msg.emotionImage) {
+                avatarImage = msg.emotionImage;
+              }
             }
           }
 

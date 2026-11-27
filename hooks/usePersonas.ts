@@ -6,11 +6,15 @@ import { db, handleFirestoreError, OperationType } from "@/lib/firebase";
 import { useFirebase } from "@/lib/firebase-context";
 import {
   AiPersona,
+  AiEmotion,
+  EmotionDraft,
+  DEFAULT_PERSONA_KEY,
   STARTER_PERSONA_IDS,
   normalizePersonaIcon,
   normalizePersonaImage,
   createPersonaInFirestore,
   updatePersonaInFirestore,
+  syncEmotionsForPersonaInFirestore,
   deletePersonaInFirestore,
   setActivePersonaInFirestore,
 } from "@/lib/firestore-personas";
@@ -21,6 +25,7 @@ export function usePersonas(userId: string) {
   const { user, authReady } = useFirebase();
 
   const [personas, setPersonas] = useState<AiPersona[]>([]);
+  const [emotions, setEmotions] = useState<AiEmotion[]>([]);
   const [activePersonaId, setActivePersonaId] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const cleanupAttemptedRef = useRef<string | null>(null);
@@ -114,6 +119,48 @@ export function usePersonas(userId: string) {
       }
     );
 
+    const emotionsPath = `users/${userId}/emotions`;
+    const emotionsQuery = query(
+      collection(db, "users", userId, "emotions"),
+      where("userId", "==", userId)
+    );
+
+    const unsubscribeEmotions = onSnapshot(
+      emotionsQuery,
+      (snapshot) => {
+        const list: AiEmotion[] = snapshot.docs.map((d) => {
+          const data = d.data();
+          const createdAtMs =
+            typeof data.createdAt?.toMillis === "function"
+              ? data.createdAt.toMillis()
+              : 0;
+          return {
+            id: typeof data.id === "string" ? data.id : d.id,
+            userId: typeof data.userId === "string" ? data.userId : userId,
+            personaId:
+              typeof data.personaId === "string"
+                ? data.personaId
+                : DEFAULT_PERSONA_KEY,
+            label: typeof data.label === "string" ? data.label : "",
+            image: normalizePersonaImage(data.image),
+            createdAtMs,
+          };
+        });
+
+        list.sort((a, b) => {
+          if (a.createdAtMs !== b.createdAtMs) {
+            return a.createdAtMs - b.createdAtMs;
+          }
+          return a.id.localeCompare(b.id);
+        });
+
+        setEmotions(list);
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, emotionsPath);
+      }
+    );
+
     const userDocRef = doc(db, "users", userId);
     const unsubscribeUser = onSnapshot(
       userDocRef,
@@ -134,6 +181,7 @@ export function usePersonas(userId: string) {
 
     return () => {
       unsubscribePersonas();
+      unsubscribeEmotions();
       unsubscribeUser();
     };
   }, [authReady, user, userId]);
@@ -142,6 +190,11 @@ export function usePersonas(userId: string) {
     if (!activePersonaId) return null;
     return personas.find((p) => p.id === activePersonaId) || null;
   }, [personas, activePersonaId]);
+
+  const activeEmotions = useMemo<AiEmotion[]>(() => {
+    const key = activePersona ? activePersona.id : DEFAULT_PERSONA_KEY;
+    return emotions.filter((e) => e.personaId === key);
+  }, [emotions, activePersona]);
 
   const selectPersona = useCallback(
     async (personaId: string) => {
@@ -159,6 +212,7 @@ export function usePersonas(userId: string) {
       name: string;
       description: string;
       profileImage?: string;
+      emotions?: EmotionDraft[];
       selectAfterCreate?: boolean;
     }) => {
       const newId = await createPersonaInFirestore({
@@ -166,6 +220,7 @@ export function usePersonas(userId: string) {
         name: input.name,
         description: input.description,
         profileImage: input.profileImage || "",
+        emotions: input.emotions,
       });
       if (input.selectAfterCreate) {
         setActivePersonaId(newId);
@@ -185,6 +240,7 @@ export function usePersonas(userId: string) {
       name: string;
       description: string;
       profileImage?: string;
+      emotions?: EmotionDraft[];
     }) => {
       await updatePersonaInFirestore({
         userId,
@@ -193,15 +249,39 @@ export function usePersonas(userId: string) {
         description: input.description,
         profileImage: input.profileImage || "",
       });
+      if (input.emotions) {
+        await syncEmotionsForPersonaInFirestore({
+          userId,
+          personaId: input.personaId,
+          drafts: input.emotions,
+          existingEmotions: emotions,
+        });
+      }
     },
-    [userId]
+    [userId, emotions]
+  );
+
+  const saveEmotionsForPersona = useCallback(
+    async (personaId: string, drafts: EmotionDraft[]) => {
+      await syncEmotionsForPersonaInFirestore({
+        userId,
+        personaId,
+        drafts,
+        existingEmotions: emotions,
+      });
+    },
+    [userId, emotions]
   );
 
   const deletePersona = useCallback(
     async (personaId: string) => {
+      const emotionIds = emotions
+        .filter((e) => e.personaId === personaId)
+        .map((e) => e.id);
       await deletePersonaInFirestore({
         userId,
         personaId,
+        emotionIds,
       });
       if (activePersonaId === personaId) {
         setActivePersonaId("");
@@ -211,17 +291,20 @@ export function usePersonas(userId: string) {
         });
       }
     },
-    [userId, activePersonaId]
+    [userId, activePersonaId, emotions]
   );
 
   return {
     personas,
+    emotions,
+    activeEmotions,
     activePersonaId,
     activePersona,
     isLoading,
     selectPersona,
     createPersona,
     updatePersona,
+    saveEmotionsForPersona,
     deletePersona,
   };
 }

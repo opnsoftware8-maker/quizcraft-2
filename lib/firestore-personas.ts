@@ -3,6 +3,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  writeBatch,
   serverTimestamp,
 } from "firebase/firestore";
 import { db, handleFirestoreError, OperationType } from "@/lib/firebase";
@@ -43,9 +44,26 @@ export interface AiPersona {
   createdAtMs: number;
 }
 
+export interface AiEmotion {
+  id: string;
+  userId: string;
+  personaId: string;
+  label: string;
+  image: string;
+  createdAtMs: number;
+}
+
+export interface EmotionDraft {
+  id?: string;
+  label: string;
+  image: string;
+}
+
+export const DEFAULT_PERSONA_KEY = "default";
 export const MAX_PERSONA_NAME_LENGTH = 120;
 export const MAX_PERSONA_DESCRIPTION_LENGTH = 50000;
 export const MAX_PERSONA_IMAGE_LENGTH = 60000;
+export const MAX_EMOTION_LABEL_LENGTH = 80;
 const SAFE_ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
 const SAFE_DATA_IMAGE_PATTERN =
   /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
@@ -71,6 +89,14 @@ export function clampPersonaDescription(description: string): string {
   if (!cleaned) return " ";
   return cleaned.length > MAX_PERSONA_DESCRIPTION_LENGTH
     ? cleaned.slice(0, MAX_PERSONA_DESCRIPTION_LENGTH)
+    : cleaned;
+}
+
+export function clampEmotionLabel(label: string): string {
+  const cleaned = label.replace(/\s+/g, " ").trim();
+  if (!cleaned) return " ";
+  return cleaned.length > MAX_EMOTION_LABEL_LENGTH
+    ? cleaned.slice(0, MAX_EMOTION_LABEL_LENGTH)
     : cleaned;
 }
 
@@ -164,14 +190,19 @@ export async function createPersonaInFirestore(params: {
   name: string;
   description: string;
   profileImage?: string;
+  emotions?: EmotionDraft[];
 }): Promise<string> {
   const uid = assertSafeId(params.userId);
   const pid = makeSafeFirestoreId("persona");
   const path = `users/${uid}/personas/${pid}`;
+  const validEmotions = (params.emotions || []).filter(
+    (em) => em.label.trim().length > 0
+  );
 
   try {
-    const ref = doc(db, "users", uid, "personas", pid);
-    await setDoc(ref, {
+    const personaRef = doc(db, "users", uid, "personas", pid);
+    const firstBatch = writeBatch(db);
+    firstBatch.set(personaRef, {
       id: pid,
       userId: uid,
       name: clampPersonaName(params.name),
@@ -181,6 +212,43 @@ export async function createPersonaInFirestore(params: {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+
+    const firstChunk = validEmotions.slice(0, 400);
+    for (const em of firstChunk) {
+      const eid = makeSafeFirestoreId("emotion");
+      const emRef = doc(db, "users", uid, "emotions", eid);
+      firstBatch.set(emRef, {
+        id: eid,
+        userId: uid,
+        personaId: pid,
+        label: clampEmotionLabel(em.label),
+        image: normalizePersonaImage(em.image),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+    await firstBatch.commit();
+
+    // Support arbitrary number of emotions beyond a single 500-op Firestore batch
+    for (let i = 400; i < validEmotions.length; i += 400) {
+      const extraBatch = writeBatch(db);
+      const chunk = validEmotions.slice(i, i + 400);
+      for (const em of chunk) {
+        const eid = makeSafeFirestoreId("emotion");
+        const emRef = doc(db, "users", uid, "emotions", eid);
+        extraBatch.set(emRef, {
+          id: eid,
+          userId: uid,
+          personaId: pid,
+          label: clampEmotionLabel(em.label),
+          image: normalizePersonaImage(em.image),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+      await extraBatch.commit();
+    }
+
     return pid;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
@@ -212,17 +280,133 @@ export async function updatePersonaInFirestore(params: {
   }
 }
 
+export async function syncEmotionsForPersonaInFirestore(params: {
+  userId: string;
+  personaId: string;
+  drafts: EmotionDraft[];
+  existingEmotions: AiEmotion[];
+}): Promise<void> {
+  const uid = assertSafeId(params.userId);
+  const pid = params.personaId === DEFAULT_PERSONA_KEY
+    ? DEFAULT_PERSONA_KEY
+    : assertSafeId(params.personaId);
+  const path = `users/${uid}/emotions`;
+
+  const existingForPersona = params.existingEmotions.filter(
+    (e) => e.personaId === pid
+  );
+  const existingMap = new Map(existingForPersona.map((e) => [e.id, e]));
+
+  const cleanDrafts = params.drafts.filter((d) => d.label.trim().length > 0);
+  const keptIds = new Set(
+    cleanDrafts.map((d) => d.id).filter((id): id is string => Boolean(id))
+  );
+
+  type BatchOp = () => {
+    kind: "create" | "update" | "delete";
+    eid: string;
+    label?: string;
+    image?: string;
+  };
+  const ops: BatchOp[] = [];
+
+  for (const existing of existingForPersona) {
+    if (!keptIds.has(existing.id)) {
+      ops.push(() => ({ kind: "delete", eid: existing.id }));
+    }
+  }
+
+  for (const draft of cleanDrafts) {
+    const nextLabel = clampEmotionLabel(draft.label);
+    const nextImage = normalizePersonaImage(draft.image);
+    const existing = draft.id ? existingMap.get(draft.id) : undefined;
+    if (existing) {
+      if (existing.label !== nextLabel || existing.image !== nextImage) {
+        ops.push(() => ({
+          kind: "update",
+          eid: existing.id,
+          label: nextLabel,
+          image: nextImage,
+        }));
+      }
+    } else {
+      const newId = makeSafeFirestoreId("emotion");
+      ops.push(() => ({
+        kind: "create",
+        eid: newId,
+        label: nextLabel,
+        image: nextImage,
+      }));
+    }
+  }
+
+  if (ops.length === 0) return;
+
+  try {
+    for (let i = 0; i < ops.length; i += 400) {
+      const batch = writeBatch(db);
+      const chunk = ops.slice(i, i + 400);
+      for (const makeOp of chunk) {
+        const op = makeOp();
+        const ref = doc(db, "users", uid, "emotions", op.eid);
+        if (op.kind === "delete") {
+          batch.delete(ref);
+        } else if (op.kind === "update") {
+          batch.update(ref, {
+            label: op.label,
+            image: op.image,
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          batch.set(ref, {
+            id: op.eid,
+            userId: uid,
+            personaId: pid,
+            label: op.label,
+            image: op.image,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
+      await batch.commit();
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
 export async function deletePersonaInFirestore(params: {
   userId: string;
   personaId: string;
+  emotionIds?: string[];
 }): Promise<void> {
   const uid = assertSafeId(params.userId);
   const pid = assertSafeId(params.personaId);
   const path = `users/${uid}/personas/${pid}`;
+  const emotionIds = (params.emotionIds || []).map((id) => assertSafeId(id));
 
   try {
-    const ref = doc(db, "users", uid, "personas", pid);
-    await deleteDoc(ref);
+    if (emotionIds.length === 0) {
+      const ref = doc(db, "users", uid, "personas", pid);
+      await deleteDoc(ref);
+      return;
+    }
+
+    const batch = writeBatch(db);
+    batch.delete(doc(db, "users", uid, "personas", pid));
+    for (const eid of emotionIds.slice(0, 400)) {
+      batch.delete(doc(db, "users", uid, "emotions", eid));
+    }
+    await batch.commit();
+
+    for (let i = 400; i < emotionIds.length; i += 400) {
+      const extraBatch = writeBatch(db);
+      for (const eid of emotionIds.slice(i, i + 400)) {
+        extraBatch.delete(doc(db, "users", uid, "emotions", eid));
+      }
+      await extraBatch.commit();
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }

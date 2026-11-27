@@ -35,6 +35,11 @@ interface IncomingChatMessage {
   files?: IncomingChatFile[];
 }
 
+interface IncomingEmotionOption {
+  id: string;
+  label: string;
+}
+
 const EMOJI_STRIP_REGEX =
   /(?:\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)|[\u{1F1E6}-\u{1F1FF}]|[\u2600-\u27BF]\uFE0F?|\d\uFE0F?\u20E3|\uFE0F/gu;
 
@@ -336,6 +341,23 @@ export async function POST(req: NextRequest) {
         ? rawPersona.description.trim().slice(0, 50000)
         : "";
 
+    const rawEmotions = Array.isArray(body?.emotions) ? body.emotions : [];
+    const validEmotions: IncomingEmotionOption[] = [];
+    const seenLabels = new Set<string>();
+    for (const item of rawEmotions) {
+      if (!item || typeof item !== "object") continue;
+      const id = typeof item.id === "string" ? item.id.trim().slice(0, 128) : "";
+      const label =
+        typeof item.label === "string"
+          ? item.label.replace(/\s+/g, " ").trim().slice(0, 80)
+          : "";
+      if (!label) continue;
+      const key = label.toLowerCase();
+      if (seenLabels.has(key)) continue;
+      seenLabels.add(key);
+      validEmotions.push({ id: id || label, label });
+    }
+
     const validMessages = rawMessages.filter(
       (m) =>
         m &&
@@ -519,7 +541,23 @@ CRITICAL BEHAVIOR RULES FOR THIS PERSONA:
 1. คุณอยู่ในโหมดสอนอย่างจริงจัง: มุ่งเน้นการสอน อธิบายเนื้อหา และช่วยทำโจทย์หรือการบ้านอย่างถูกต้อง แม่นยำ และเป็นวิชาการเท่านั้น
 2. ห้ามคุยเล่นนอกเรื่อง ห้ามหยอกล้อ ห้ามสวมบทบาทเชิงชู้สาวหรือบทบาทบันเทิงใดๆ หากผู้ใช้ชวนคุยเล่นนอกเรื่อง หรือขอให้เป็นแฟน/เพื่อนคุยเล่น ให้ปฏิเสธอย่างสุภาพสั้นๆ 1 ประโยค แล้วชวนกลับมาที่เรื่องเรียน คำถาม หรือโจทย์การบ้านทันที`;
 
-    const systemInstruction = `${baseInstruction}${personaDirective}${modeDirective}`;
+    const emotionListText = validEmotions.map((e) => e.label).join(", ");
+    const emotionDirective =
+      validEmotions.length > 0
+        ? language === "en"
+          ? `\n\nAI EMOTION EXPRESSION SYSTEM (REQUIRED FOR THIS RESPONSE):
+- Available emotion options configured by the user: [${emotionListText}]
+- At the VERY START of your response (before any other text), select the single emotion from that list that best matches the feeling and tone of your response, and output ONLY: [[EMOTION:<exact emotion name from the list>]] followed by a newline, then immediately continue writing your answer.
+- Example: [[EMOTION:${validEmotions[0].label}]]
+- Embody that chosen emotion naturally through your wording, tone, and attitude while answering accurately. Never explain, repeat, or mention the [[EMOTION:...]] tag in your visible answer.`
+          : `\n\nระบบการแสดงอารมณ์ของเอไอ (ต้องระบุในคำตอบนี้):
+- รายการอารมณ์ที่ผู้ใช้กำหนดไว้: [${emotionListText}]
+- ที่บรรทัดแรกสุดของคำตอบ (ก่อนข้อความใดๆ ทั้งสิ้น) ให้เลือก 1 อารมณ์จากรายการด้านบนที่สอดคล้องกับความรู้สึกและน้ำเสียงของคำตอบนี้มากที่สุด แล้วพิมพ์เฉพาะรูปแบบ [[EMOTION:<ชื่ออารมณ์ตามรายการเป๊ะๆ>]] ตามด้วยการขึ้นบรรทัดใหม่ จากนั้นจึงพิมพ์คำตอบตามปกติทันที
+- ตัวอย่าง: [[EMOTION:${validEmotions[0].label}]]
+- แสดงอารมณ์ที่เลือกนั้นออกมาอย่างเป็นธรรมชาติผ่านน้ำเสียงและถ้อยคำในการตอบ ห้ามอธิบายหรือเอ่ยถึงแท็ก [[EMOTION:...]] ในเนื้อหาคำตอบเด็ดขาด`
+        : "";
+
+    const systemInstruction = `${baseInstruction}${personaDirective}${modeDirective}${emotionDirective}`;
     const tools = [
       {
         functionDeclarations: [
@@ -555,6 +593,93 @@ CRITICAL BEHAVIOR RULES FOR THIS PERSONA:
         try {
           const currentContents: any[] = [...initialContents];
           const MAX_TOOL_ROUNDS = 5;
+          let emotionResolved = validEmotions.length === 0;
+          let emotionPrefixBuffer = "";
+
+          const matchEmotionOption = (rawLabel: string): IncomingEmotionOption | null => {
+            const clean = rawLabel.replace(/\s+/g, " ").trim();
+            if (!clean) return null;
+            const exact = validEmotions.find((e) => e.label === clean);
+            if (exact) return exact;
+            const lower = clean.toLowerCase();
+            const ci = validEmotions.find((e) => e.label.toLowerCase() === lower);
+            if (ci) return ci;
+            const partial = validEmotions.find(
+              (e) =>
+                e.label.toLowerCase().includes(lower) ||
+                lower.includes(e.label.toLowerCase())
+            );
+            return partial || null;
+          };
+
+          const emitTextChunk = (textToSend: string) => {
+            if (!textToSend) return;
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ chunk: textToSend })}\n\n`)
+            );
+          };
+
+          const processOutgoingText = (incoming: string) => {
+            if (!incoming) return;
+            if (emotionResolved) {
+              emitTextChunk(incoming);
+              return;
+            }
+
+            emotionPrefixBuffer += incoming;
+            const leadingTrimmed = emotionPrefixBuffer.replace(/^\s+/, "");
+            if (!leadingTrimmed) {
+              return;
+            }
+
+            const upper = leadingTrimmed.toUpperCase();
+            const prefixConst = "[[EMOTION:";
+            if (leadingTrimmed.length < prefixConst.length) {
+              if (prefixConst.startsWith(upper)) {
+                return;
+              }
+              emotionResolved = true;
+              emitTextChunk(emotionPrefixBuffer);
+              emotionPrefixBuffer = "";
+              return;
+            }
+
+            if (upper.startsWith(prefixConst)) {
+              const closeIdx = leadingTrimmed.indexOf("]]");
+              if (closeIdx === -1) {
+                if (leadingTrimmed.length > 160) {
+                  emotionResolved = true;
+                  emitTextChunk(emotionPrefixBuffer);
+                  emotionPrefixBuffer = "";
+                }
+                return;
+              }
+
+              const rawLabel = leadingTrimmed.slice(prefixConst.length, closeIdx);
+              const matched = matchEmotionOption(rawLabel);
+              if (matched) {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({
+                      emotion: { id: matched.id, label: matched.label },
+                    })}\n\n`
+                  )
+                );
+              }
+
+              const rest = leadingTrimmed.slice(closeIdx + 2).replace(/^[ \t]*\r?\n?/, "");
+              emotionResolved = true;
+              emotionPrefixBuffer = "";
+              if (rest) {
+                emitTextChunk(rest);
+              }
+              return;
+            }
+
+            emotionResolved = true;
+            emitTextChunk(emotionPrefixBuffer);
+            emotionPrefixBuffer = "";
+          };
 
           emitStatus("thinking");
 
@@ -603,9 +728,7 @@ CRITICAL BEHAVIOR RULES FOR THIS PERSONA:
               const rawText = c.text;
               const text = rawText ? stripEmojis(rawText) : "";
               if (text) {
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ chunk: text })}\n\n`)
-                );
+                processOutgoingText(text);
               }
             }
 
@@ -728,6 +851,11 @@ CRITICAL BEHAVIOR RULES FOR THIS PERSONA:
               role: "user",
               parts: functionResponseParts,
             });
+          }
+
+          if (!emotionResolved && emotionPrefixBuffer) {
+            emitTextChunk(emotionPrefixBuffer);
+            emotionPrefixBuffer = "";
           }
 
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));

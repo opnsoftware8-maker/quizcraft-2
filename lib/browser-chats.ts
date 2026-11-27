@@ -105,6 +105,7 @@ function prepareChatsForStorage(chats: SavedChatSession[]): SavedChatSession[] {
     ...chat,
     messages: chat.messages.map((m) => ({
       ...m,
+      emotionImage: undefined,
       uploadedFiles: sanitizeStoredUploadedFiles(m.uploadedFiles),
     })),
   }));
@@ -146,6 +147,9 @@ export function loadBrowserChats(userId: string): SavedChatSession[] {
           personaId: typeof m.personaId === "string" ? m.personaId : undefined,
           personaName:
             typeof m.personaName === "string" ? m.personaName : undefined,
+          emotionId: typeof m.emotionId === "string" ? m.emotionId : undefined,
+          emotionLabel:
+            typeof m.emotionLabel === "string" ? m.emotionLabel : undefined,
           status:
             m.status === "error"
               ? "error"

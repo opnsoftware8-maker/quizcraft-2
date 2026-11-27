@@ -78,6 +78,26 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    // Validation blueprint: AiEmotion
+    function isValidAiEmotion(data, userId, emotionId) {
+      return data.keys().hasAll(['id', 'userId', 'personaId', 'label', 'image', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'userId', 'personaId', 'label', 'image', 'createdAt', 'updatedAt'])
+        && isValidId(data.id)
+        && data.id == emotionId
+        && isValidId(data.userId)
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && isValidId(data.personaId)
+        && data.label is string
+        && data.label.size() >= 1
+        && data.label.size() <= 80
+        && data.image is string
+        && data.image.size() <= 60000
+        && (data.image == '' || data.image.matches('^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$'))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     // Validation blueprint: StudyHistoryItem
     function isValidStudyHistoryItem(data, userId, itemId) {
       return data.keys().hasAll(['id', 'userId', 'type', 'title', 'subject', 'content', 'createdAt', 'updatedAt'])
@@ -191,6 +211,43 @@ service cloud.firestore {
           && isOwner(userId)
           && isValidId(userId)
           && isValidId(personaId);
+      }
+
+      // User Custom AI Emotion Expressions
+      match /emotions/{emotionId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(emotionId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+
+        allow create: if isVerifiedUser()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(emotionId)
+          && isValidAiEmotion(incoming(), userId, emotionId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && (
+            incoming().personaId == 'default' ||
+            exists(/databases/$(database)/documents/users/$(userId)/personas/$(incoming().personaId)) ||
+            existsAfter(/databases/$(database)/documents/users/$(userId)/personas/$(incoming().personaId))
+          );
+
+        allow update: if isVerifiedUser()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(emotionId)
+          && isValidAiEmotion(incoming(), userId, emotionId)
+          && incoming().id == existing().id
+          && incoming().userId == existing().userId
+          && incoming().personaId == existing().personaId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['label', 'image', 'updatedAt']);
+
+        allow delete: if isVerifiedUser()
+          && isOwner(userId)
+          && isValidId(userId)
+          && isValidId(emotionId);
       }
 
       // User Saved Study History (Summaries & Quizzes)

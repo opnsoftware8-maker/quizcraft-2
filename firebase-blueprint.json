@@ -127,6 +127,62 @@
         "updatedAt"
       ]
     },
+    "AiEmotion": {
+      "title": "AiEmotion",
+      "description": "Custom emotion expression label and profile avatar uploaded by the user for an AI persona (or default AI).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique emotion identifier."
+        },
+        "userId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Owner user UID matching parent user document."
+        },
+        "personaId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Parent persona ID or 'default' for the default AI assistant."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Emotion label written by the user (e.g., happy, angry, shy)."
+        },
+        "image": {
+          "type": "string",
+          "maxLength": 60000,
+          "pattern": "^(|data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+)$",
+          "description": "Compressed base64 data URL for the AI profile avatar shown when expressing this emotion."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when emotion was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest emotion edit."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "personaId",
+        "label",
+        "image",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
     "StudyHistoryItem": {
       "title": "StudyHistoryItem",
       "description": "Saved learning history snapshot (either a generated summary or a generated quiz/practice set) owned by the user.",
@@ -294,6 +350,10 @@
     "/users/{userId}/personas/{personaId}": {
       "schema": { "$ref": "#/entities/AiPersona" },
       "description": "Custom AI teacher personas saved by the user."
+    },
+    "/users/{userId}/emotions/{emotionId}": {
+      "schema": { "$ref": "#/entities/AiEmotion" },
+      "description": "Custom emotion labels and response avatar images configured by the user."
     },
     "/users/{userId}/studyHistory/{itemId}": {
       "schema": { "$ref": "#/entities/StudyHistoryItem" },

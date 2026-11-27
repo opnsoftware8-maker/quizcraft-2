@@ -75,6 +75,11 @@ function ChatWorkspace({ userId }: { userId: string }) {
           description: personaState.activePersona.description,
         }
       : null,
+    activeEmotions: personaState.activeEmotions.map((em) => ({
+      id: em.id,
+      label: em.label,
+      image: em.image,
+    })),
   });
 
   const [activePage, setActivePage] = useState<AppPage>("chat");
@@ -284,6 +289,7 @@ function ChatWorkspace({ userId }: { userId: string }) {
                     onCreateQuizFromMessage={handleCreateQuizFromMessage}
                     onSummarizeFromMessage={handleSummarizeFromMessage}
                     personas={personaState.personas}
+                    emotions={personaState.emotions}
                     activePersona={personaState.activePersona}
                   />
                 )}
@@ -336,10 +342,12 @@ function ChatWorkspace({ userId }: { userId: string }) {
         isOpen={isPersonaModalOpen}
         onClose={() => setIsPersonaModalOpen(false)}
         personas={personaState.personas}
+        emotions={personaState.emotions}
         activePersonaId={personaState.activePersonaId}
         isLoading={personaState.isLoading}
         onCreatePersona={personaState.createPersona}
         onUpdatePersona={personaState.updatePersona}
+        onSaveEmotionsForPersona={personaState.saveEmotionsForPersona}
         onDeletePersona={personaState.deletePersona}
         onSelectPersona={personaState.selectPersona}
       />
