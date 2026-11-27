@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAiClient, TEXT_MODELS } from "@/lib/gemini";
 import { isValidGeminiApiKeyFormat } from "@/lib/custom-key";
 
-const VERIFY_MODELS = Array.from(
-  new Set(["gemini-4-hydrogen", "gemini-3.1-flash-lite", ...TEXT_MODELS])
-);
+const VERIFY_MODELS = Array.from(new Set(TEXT_MODELS));
 
 function isInvalidKeyError(msg: string, code?: unknown): boolean {
   return (

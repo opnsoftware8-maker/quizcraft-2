@@ -40,12 +40,11 @@ export const ai = {
   },
 };
 
-// Resilient model list: gemini-3.8-flash, gemini-3.6-flash, and gemini-flash-latest
+// Primary cost-efficient production model: gemini-3.1-flash-lite with resilient fallbacks
 export const TEXT_MODELS = [
-  "gemini-3.8-flash",
-  "gemini-3.6-flash",
-  "gemini-flash-latest",
   "gemini-3.1-flash-lite",
+  "gemini-4-hydrogen",
+  "gemini-flash-latest",
 ];
 
 function sleep(ms: number): Promise<void> {
@@ -186,7 +185,7 @@ export async function generateChatStreamWithFallback(options: {
   models?: string[];
   apiKey?: string;
 }) {
-  const defaultStreamModels = ["gemini-4-hydrogen", ...TEXT_MODELS];
+  const defaultStreamModels = TEXT_MODELS;
   const models =
     options.models && options.models.length > 0
       ? options.models
@@ -210,8 +209,8 @@ export async function generateChatStreamWithFallback(options: {
         : Array.from(
             new Set(
               [
-                "gemini-4-hydrogen",
                 "gemini-3.1-flash-lite",
+                "gemini-4-hydrogen",
                 "gemini-flash-latest",
                 models[0],
               ].filter((m): m is string => Boolean(m) && models.includes(m))
