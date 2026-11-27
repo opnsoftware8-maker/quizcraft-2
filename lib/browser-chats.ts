@@ -1,4 +1,5 @@
 import type { ChatMessage, ChatAttachmentMeta } from "@/components/ChatMessageList";
+import type { ChatUploadedFile } from "@/lib/chat-files";
 import { sanitizeStructuredTables } from "@/lib/structured-table";
 import { sanitizeMathCanvases } from "@/lib/math-canvas";
 
@@ -39,13 +40,23 @@ export function sortBrowserChats(
 
 export function deriveFallbackChatTitle(
   firstMessage: string,
-  attachments?: ChatAttachmentMeta[]
+  attachments?: ChatAttachmentMeta[],
+  uploadedFiles?: ChatUploadedFile[]
 ): string {
   const cleaned = firstMessage.replace(/\s+/g, " ").trim();
   const defaultEnPrompt =
     "Help me review and discuss the attached study materials.";
   const defaultThPrompt =
     "ช่วยอธิบายและพูดคุยเกี่ยวกับเนื้อหาที่แนบมานี้";
+
+  if (
+    uploadedFiles &&
+    uploadedFiles.length > 0 &&
+    !cleaned
+  ) {
+    const joined = uploadedFiles.map((f) => f.name).join(", ");
+    return joined.length > 52 ? `${joined.slice(0, 52).trim()}...` : joined;
+  }
 
   if (
     attachments &&
@@ -61,6 +72,42 @@ export function deriveFallbackChatTitle(
   }
 
   return cleaned.length > 52 ? `${cleaned.slice(0, 52).trim()}...` : cleaned;
+}
+
+function sanitizeStoredUploadedFiles(raw: unknown): ChatUploadedFile[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const cleaned = raw
+    .filter((f) => f && typeof f.name === "string")
+    .map((f) => ({
+      id: String(f.id || ""),
+      name: String(f.name || "file"),
+      mimeType: typeof f.mimeType === "string" ? f.mimeType : "application/octet-stream",
+      size: typeof f.size === "number" ? f.size : 0,
+      kind:
+        f.kind === "image" || f.kind === "pdf" || f.kind === "text"
+          ? (f.kind as ChatUploadedFile["kind"])
+          : ("text" as const),
+      // Keep small previewUrl only if under ~80KB, omit heavy base64Data for localStorage budget
+      previewUrl:
+        typeof f.previewUrl === "string" && f.previewUrl.length <= 80000
+          ? f.previewUrl
+          : undefined,
+      textContent:
+        typeof f.textContent === "string"
+          ? f.textContent.slice(0, 12000)
+          : undefined,
+    }));
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
+function prepareChatsForStorage(chats: SavedChatSession[]): SavedChatSession[] {
+  return chats.map((chat) => ({
+    ...chat,
+    messages: chat.messages.map((m) => ({
+      ...m,
+      uploadedFiles: sanitizeStoredUploadedFiles(m.uploadedFiles),
+    })),
+  }));
 }
 
 export function loadBrowserChats(userId: string): SavedChatSession[] {
@@ -93,6 +140,7 @@ export function loadBrowserChats(userId: string): SavedChatSession[] {
           content: typeof m.content === "string" ? m.content : "",
           apiContent: typeof m.apiContent === "string" ? m.apiContent : undefined,
           attachments: Array.isArray(m.attachments) ? m.attachments : undefined,
+          uploadedFiles: sanitizeStoredUploadedFiles(m.uploadedFiles),
           tables: sanitizeStructuredTables(m.tables),
           canvases: sanitizeMathCanvases(m.canvases),
           personaId: typeof m.personaId === "string" ? m.personaId : undefined,
@@ -121,7 +169,9 @@ export function saveBrowserChats(
 ): void {
   if (typeof window === "undefined" || !userId) return;
   const key = getStorageKey(userId);
-  const sorted = sortBrowserChats(chats).slice(0, MAX_CHATS_PER_USER);
+  const sorted = prepareChatsForStorage(
+    sortBrowserChats(chats).slice(0, MAX_CHATS_PER_USER)
+  );
 
   try {
     window.localStorage.setItem(key, JSON.stringify(sorted));

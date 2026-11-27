@@ -6,13 +6,15 @@ import { Loader2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { Header, AppPage, ChatMode } from "@/components/Header";
 import { ChatComposer } from "@/components/ChatComposer";
-import { ChatMessageList } from "@/components/ChatMessageList";
+import { ChatMessageList, type ChatMessage } from "@/components/ChatMessageList";
 import { LoginWelcomeView } from "@/components/LoginWelcomeView";
 import { useOpenSolverCore } from "@/hooks/useOpenSolverCore";
 import { useChatStream } from "@/hooks/useChatStream";
 import { usePersonas } from "@/hooks/usePersonas";
 import { useStudyHistory } from "@/hooks/useStudyHistory";
 import type { StudyHistoryItem } from "@/lib/firestore-study-history";
+import { type ChatUploadedFile, MAX_CHAT_FILES } from "@/lib/chat-files";
+import { tableToTsv } from "@/lib/structured-table";
 import { useLanguage } from "@/lib/language-context";
 import { useFirebase } from "@/lib/firebase-context";
 
@@ -81,6 +83,7 @@ function ChatWorkspace({ userId }: { userId: string }) {
   const [attachedHistoryItems, setAttachedHistoryItems] = useState<
     StudyHistoryItem[]
   >([]);
+  const [attachedFiles, setAttachedFiles] = useState<ChatUploadedFile[]>([]);
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState<boolean>(false);
   const [isPersonaModalOpen, setIsPersonaModalOpen] = useState<boolean>(false);
   const [isStudyHistoryModalOpen, setIsStudyHistoryModalOpen] =
@@ -98,6 +101,7 @@ function ChatWorkspace({ userId }: { userId: string }) {
     setActivePage("chat");
     setChatInput("");
     setAttachedHistoryItems([]);
+    setAttachedFiles([]);
     chat.clearChat();
     core.handleReset();
   };
@@ -107,11 +111,17 @@ function ChatWorkspace({ userId }: { userId: string }) {
     setActivePage("chat");
     setChatInput("");
     setAttachedHistoryItems([]);
+    setAttachedFiles([]);
     chat.selectChat(chatId);
   };
 
-  const { isStreaming: isChatStreaming, sendMessage: sendChatMessage } = chat;
-  const { setNotesText } = core;
+  const { isStreaming: isChatStreaming, sendMessage: sendChatMessage, messages: chatMessages } = chat;
+  const {
+    setNotesText,
+    setCurrentStep,
+    handleHomeworkConvertToQuiz,
+    handleHomeworkConvertToSummary,
+  } = core;
 
   const handleOpenStudyHistory = useCallback(() => {
     setIsStudyHistoryModalOpen(true);
@@ -123,22 +133,103 @@ function ChatWorkspace({ userId }: { userId: string }) {
     );
   }, []);
 
+  const handleAddFiles = useCallback((files: ChatUploadedFile[]) => {
+    setAttachedFiles((prev) => [...prev, ...files].slice(0, MAX_CHAT_FILES));
+  }, []);
+
+  const handleRemoveAttachedFile = useCallback((fileId: string) => {
+    setAttachedFiles((prev) => prev.filter((f) => f.id !== fileId));
+  }, []);
+
+  const extractLearningTextFromMessage = useCallback(
+    (aiMsg: ChatMessage): string => {
+      const parts: string[] = [];
+      if (aiMsg.content.trim()) {
+        parts.push(aiMsg.content.trim());
+      }
+      if (aiMsg.tables && aiMsg.tables.length > 0) {
+        parts.push(
+          aiMsg.tables
+            .map((t) => `${t.title}\n${tableToTsv(t)}`)
+            .join("\n\n")
+        );
+      }
+      if (aiMsg.canvases && aiMsg.canvases.length > 0) {
+        parts.push(
+          aiMsg.canvases
+            .map((c) => `${c.title}${c.subject ? ` (${c.subject})` : ""}`)
+            .join("\n")
+        );
+      }
+
+      let combined = parts.join("\n\n").trim();
+
+      // Ensure at least 20 characters for /api/generate-exam and /api/summarize-notes validation
+      if (combined.length < 25) {
+        const idx = chatMessages.findIndex((m) => m.id === aiMsg.id);
+        if (idx > 0) {
+          for (let i = idx - 1; i >= 0; i--) {
+            const candidate = chatMessages[i];
+            if (candidate.role === "user") {
+              const userCtx = (candidate.apiContent || candidate.content).trim();
+              if (userCtx) {
+                combined = `${userCtx}\n\n${combined}`.trim();
+              }
+              break;
+            }
+          }
+        }
+      }
+
+      return combined;
+    },
+    [chatMessages]
+  );
+
+  const handleCreateQuizFromMessage = useCallback(
+    (aiMsg: ChatMessage) => {
+      const sourceText = extractLearningTextFromMessage(aiMsg);
+      if (!sourceText) return;
+      handleHomeworkConvertToQuiz(sourceText);
+      setSlideDirection(1);
+      setActivePage("learn");
+    },
+    [extractLearningTextFromMessage, handleHomeworkConvertToQuiz]
+  );
+
+  const handleSummarizeFromMessage = useCallback(
+    (aiMsg: ChatMessage) => {
+      const sourceText = extractLearningTextFromMessage(aiMsg);
+      if (!sourceText) return;
+      setCurrentStep("input");
+      setSlideDirection(1);
+      setActivePage("learn");
+      handleHomeworkConvertToSummary(sourceText);
+    },
+    [extractLearningTextFromMessage, handleHomeworkConvertToSummary, setCurrentStep]
+  );
+
   const handleSendMessage = useCallback(() => {
     const trimmed = chatInput.trim();
     if (
-      (!trimmed && attachedHistoryItems.length === 0) ||
+      (!trimmed &&
+        attachedHistoryItems.length === 0 &&
+        attachedFiles.length === 0) ||
       isChatStreaming
     ) {
       return;
     }
     const attachmentsToSend = attachedHistoryItems;
+    const filesToSend = attachedFiles;
     setChatInput("");
     setAttachedHistoryItems([]);
+    setAttachedFiles([]);
     if (trimmed) {
       setNotesText(trimmed);
     }
-    sendChatMessage(trimmed, attachmentsToSend);
+    sendChatMessage(trimmed, attachmentsToSend, filesToSend);
   }, [
+    attachedFiles,
     attachedHistoryItems,
     chatInput,
     isChatStreaming,
@@ -190,6 +281,8 @@ function ChatWorkspace({ userId }: { userId: string }) {
                     messages={chat.messages}
                     onRetry={chat.retryMessage}
                     onFeedback={chat.toggleFeedback}
+                    onCreateQuizFromMessage={handleCreateQuizFromMessage}
+                    onSummarizeFromMessage={handleSummarizeFromMessage}
                     personas={personaState.personas}
                     activePersona={personaState.activePersona}
                   />
@@ -204,8 +297,11 @@ function ChatWorkspace({ userId }: { userId: string }) {
                   onSubmit={handleSendMessage}
                   isStreaming={chat.isStreaming}
                   attachedItems={attachedHistoryItems}
+                  attachedFiles={attachedFiles}
                   onOpenStudyHistory={handleOpenStudyHistory}
                   onRemoveAttachedItem={handleRemoveAttachedItem}
+                  onAddFiles={handleAddFiles}
+                  onRemoveAttachedFile={handleRemoveAttachedFile}
                 />
               </div>
             </motion.div>

@@ -26,6 +26,37 @@ import {
   tableToTsv,
 } from "@/lib/structured-table";
 import { MathCanvasData, sanitizeMathCanvases } from "@/lib/math-canvas";
+import type { ChatUploadedFile } from "@/lib/chat-files";
+
+type ApiChatFilePayload = {
+  name: string;
+  mimeType: string;
+  kind: "image" | "pdf" | "text";
+  base64Data?: string;
+  textContent?: string;
+};
+
+function toApiFiles(
+  files?: ChatUploadedFile[]
+): ApiChatFilePayload[] | undefined {
+  if (!files || files.length === 0) return undefined;
+  return files.map((f) => {
+    let base64Data = f.base64Data;
+    if (!base64Data && f.kind === "image" && f.previewUrl?.startsWith("data:")) {
+      const commaIdx = f.previewUrl.indexOf(",");
+      if (commaIdx >= 0) {
+        base64Data = f.previewUrl.slice(commaIdx + 1);
+      }
+    }
+    return {
+      name: f.name,
+      mimeType: f.mimeType,
+      kind: f.kind,
+      ...(base64Data ? { base64Data } : {}),
+      ...(f.textContent !== undefined ? { textContent: f.textContent } : {}),
+    };
+  });
+}
 
 function formatAttachmentsForApi(
   items: StudyHistoryItem[],
@@ -196,7 +227,11 @@ export function useChatStream({
   const streamAssistantReply = useCallback(
     async (
       targetAiId: string,
-      conversationHistory: Array<{ role: "user" | "assistant"; content: string }>,
+      conversationHistory: Array<{
+        role: "user" | "assistant";
+        content: string;
+        files?: ApiChatFilePayload[];
+      }>,
       chatIdForPersist: string | null,
       isRetryPersist: boolean
     ) => {
@@ -525,7 +560,12 @@ export function useChatStream({
                   ? `${firstUserMsg.attachments.map((a) => a.title).join(", ")}: ${
                       firstUserMsg.content
                     }`
-                  : firstUserMsg?.content || "";
+                  : firstUserMsg?.uploadedFiles &&
+                      firstUserMsg.uploadedFiles.length > 0
+                    ? `${firstUserMsg.uploadedFiles.map((f) => f.name).join(", ")}${
+                        firstUserMsg.content ? `: ${firstUserMsg.content}` : ""
+                      }`
+                    : firstUserMsg?.content || "";
               if (titleInput) {
                 generateAiTitleInBackground(chatIdForPersist, titleInput, finalText);
               }
@@ -602,15 +642,38 @@ export function useChatStream({
   );
 
   const sendMessage = useCallback(
-    async (rawText: string, attachedHistory: StudyHistoryItem[] = []) => {
+    async (
+      rawText: string,
+      attachedHistory: StudyHistoryItem[] = [],
+      uploadedFiles: ChatUploadedFile[] = []
+    ) => {
       const text = rawText.trim();
-      if ((!text && attachedHistory.length === 0) || isStreaming) return;
+      if (
+        (!text && attachedHistory.length === 0 && uploadedFiles.length === 0) ||
+        isStreaming
+      ) {
+        return;
+      }
 
-      const displayContent =
+      const hasFiles = uploadedFiles.length > 0;
+      const displayContent = text
+        ? text
+        : attachedHistory.length > 0
+          ? language === "en"
+            ? "Help me review and discuss the attached study materials."
+            : "ช่วยอธิบายและพูดคุยเกี่ยวกับเนื้อหาที่แนบมานี้"
+          : "";
+
+      const defaultFileApiPrompt =
+        language === "en"
+          ? "Please read the attached homework image(s) or file(s), solve every problem, and clearly show both the final answer and step-by-step reasoning."
+          : "ช่วยอ่านรูปภาพหรือไฟล์การบ้านที่แนบมานี้ แล้วช่วยทำพร้อมแสดงคำตอบและวิธีคิดทีละขั้นตอน";
+
+      const baseApiPrompt =
         text ||
-        (language === "en"
-          ? "Help me review and discuss the attached study materials."
-          : "ช่วยอธิบายและพูดคุยเกี่ยวกับเนื้อหาที่แนบมานี้");
+        (hasFiles
+          ? defaultFileApiPrompt
+          : displayContent);
 
       const apiContent =
         attachedHistory.length > 0
@@ -618,16 +681,25 @@ export function useChatStream({
               language === "en"
                 ? "User Message"
                 : "คำถามหรือข้อความจากผู้ใช้"
-            }:\n${displayContent}`
-          : displayContent;
+            }:\n${baseApiPrompt}`
+          : baseApiPrompt;
+
+      const fileNamesTag = hasFiles
+        ? `[${language === "en" ? "Attached Files" : "ไฟล์ที่แนบ"}: ${uploadedFiles
+            .map((f) => f.name)
+            .join(", ")}]`
+        : "";
+
+      const historyTag =
+        attachedHistory.length > 0
+          ? `[${attachedHistory.map((i) => i.title).join(", ")}]`
+          : "";
 
       const firestoreContent =
-        attachedHistory.length > 0
-          ? `[${attachedHistory.map((i) => i.title).join(", ")}]\n${displayContent}`.slice(
-              0,
-              45000
-            )
-          : displayContent;
+        [historyTag, fileNamesTag, displayContent]
+          .filter(Boolean)
+          .join("\n")
+          .slice(0, 45000) || defaultFileApiPrompt;
 
       const attachmentMetas =
         attachedHistory.length > 0
@@ -646,6 +718,7 @@ export function useChatStream({
         content: displayContent,
         apiContent,
         attachments: attachmentMetas,
+        uploadedFiles: hasFiles ? uploadedFiles : undefined,
         status: "done",
         feedback: null,
       };
@@ -676,7 +749,8 @@ export function useChatStream({
       const now = Date.now();
       const fallbackTitle = deriveFallbackChatTitle(
         displayContent,
-        attachmentMetas
+        attachmentMetas,
+        uploadedFiles
       );
       commitBrowserChats((prev) => {
         const exists = prev.some((c) => c.id === chatId);
@@ -740,15 +814,30 @@ export function useChatStream({
         return parts.join("\n\n");
       };
 
+      const apiFiles = toApiFiles(uploadedFiles);
+
       const historyForApi = [
         ...messagesRef.current
           .slice(0, -2)
           .filter(
             (m) =>
-              m.status !== "error" && formatMsgForHistory(m).trim().length > 0
+              m.status !== "error" &&
+              (formatMsgForHistory(m).trim().length > 0 ||
+                Boolean(m.uploadedFiles && m.uploadedFiles.length > 0))
           )
-          .map((m) => ({ role: m.role, content: formatMsgForHistory(m) })),
-        { role: "user" as const, content: apiContent },
+          .map((m) => {
+            const files = toApiFiles(m.uploadedFiles);
+            return {
+              role: m.role,
+              content: formatMsgForHistory(m),
+              ...(files ? { files } : {}),
+            };
+          }),
+        {
+          role: "user" as const,
+          content: apiContent,
+          ...(apiFiles ? { files: apiFiles } : {}),
+        },
       ];
 
       await streamAssistantReply(aiMsgId, historyForApi, chatId, false);
@@ -790,9 +879,18 @@ export function useChatStream({
         .slice(0, targetIndex)
         .filter(
           (m) =>
-            m.status !== "error" && formatMsgForHistory(m).trim().length > 0
+            m.status !== "error" &&
+            (formatMsgForHistory(m).trim().length > 0 ||
+              Boolean(m.uploadedFiles && m.uploadedFiles.length > 0))
         )
-        .map((m) => ({ role: m.role, content: formatMsgForHistory(m) }));
+        .map((m) => {
+          const files = toApiFiles(m.uploadedFiles);
+          return {
+            role: m.role,
+            content: formatMsgForHistory(m),
+            ...(files ? { files } : {}),
+          };
+        });
 
       if (historyUpToPrompt.length === 0) return;
 

@@ -21,9 +21,18 @@ type StreamThinkingStage =
   | "drawing_graph"
   | "composing";
 
+interface IncomingChatFile {
+  name?: string;
+  mimeType?: string;
+  kind?: "image" | "pdf" | "text";
+  base64Data?: string;
+  textContent?: string;
+}
+
 interface IncomingChatMessage {
   role: "user" | "assistant";
   content: string;
+  files?: IncomingChatFile[];
 }
 
 const EMOJI_STRIP_REGEX =
@@ -331,8 +340,8 @@ export async function POST(req: NextRequest) {
       (m) =>
         m &&
         (m.role === "user" || m.role === "assistant") &&
-        typeof m.content === "string" &&
-        m.content.trim().length > 0
+        ((typeof m.content === "string" && m.content.trim().length > 0) ||
+          (Array.isArray(m.files) && m.files.length > 0))
     );
 
     if (validMessages.length === 0) {
@@ -340,16 +349,78 @@ export async function POST(req: NextRequest) {
         {
           error:
             language === "en"
-              ? "Please enter a message before sending."
-              : "กรุณาพิมพ์ข้อความก่อนส่ง",
+              ? "Please enter a message or attach a file before sending."
+              : "กรุณาพิมพ์ข้อความหรือแนบไฟล์ก่อนส่ง",
         },
         { status: 400 }
       );
     }
 
+    const buildUserParts = (m: IncomingChatMessage) => {
+      const parts: any[] = [];
+      const files = Array.isArray(m.files) ? m.files.slice(0, 5) : [];
+
+      for (const f of files) {
+        if (!f || typeof f !== "object") continue;
+        const safeName =
+          typeof f.name === "string" && f.name.trim()
+            ? f.name.trim().slice(0, 120)
+            : "attachment";
+
+        if (
+          (f.kind === "image" || f.kind === "pdf") &&
+          typeof f.base64Data === "string" &&
+          f.base64Data.length > 0
+        ) {
+          const cleanBase64 = f.base64Data.replace(/^data:[^;]+;base64,/, "");
+          const safeMime =
+            f.kind === "pdf"
+              ? "application/pdf"
+              : typeof f.mimeType === "string" && f.mimeType.startsWith("image/")
+                ? f.mimeType
+                : "image/jpeg";
+          parts.push({
+            inlineData: {
+              mimeType: safeMime,
+              data: cleanBase64,
+            },
+          });
+        } else if (
+          f.kind === "text" &&
+          typeof f.textContent === "string" &&
+          f.textContent.trim().length > 0
+        ) {
+          parts.push({
+            text: `[Attached File: ${safeName}]\n${f.textContent.slice(0, 100000)}`,
+          });
+        } else {
+          parts.push({
+            text: `[Previously attached file: ${safeName}]`,
+          });
+        }
+      }
+
+      const trimmedText = typeof m.content === "string" ? m.content.trim() : "";
+      if (trimmedText.length > 0) {
+        parts.push({ text: trimmedText });
+      } else if (parts.length > 0) {
+        parts.push({
+          text:
+            language === "en"
+              ? "Please read the attached homework image or file carefully and solve it, clearly showing both the final answer and step-by-step reasoning."
+              : "โปรดอ่านรูปภาพหรือไฟล์การบ้านที่แนบมานี้อย่างละเอียด แล้วช่วยทำพร้อมแสดงทั้งคำตอบและวิธีคิดทีละขั้นตอนให้ชัดเจน",
+        });
+      }
+
+      return parts;
+    };
+
     const initialContents: any[] = validMessages.map((m) => ({
       role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: m.content }],
+      parts:
+        m.role === "assistant"
+          ? [{ text: m.content }]
+          : buildUserParts(m),
     }));
 
     const baseInstruction =
@@ -375,10 +446,18 @@ export async function POST(req: NextRequest) {
   - Write in clear, natural, human-friendly language. Avoid cluttering responses with horizontal divider lines (\`---\`), excessive nested \`###\`/\`####\` symbols, or raw computer-code syntax in normal explanations.
   - Only use fenced code blocks (\`\`\`) when the user specifically asks for programming code.
   - When writing fractions or formulas in text, either use simple readable notation (like \`2/3\`, \`×\`, \`÷\`) or wrap mathematical expressions cleanly in \`$...$\` / \`$$...$$\` so they render properly—never leave raw unescaped LaTeX commands like \`\\frac\` outside math delimiters.
+- HOMEWORK IMAGES & ATTACHED FILES:
+  - Whenever the user attaches homework photos, PDFs, or text/document files, carefully read every problem, number, diagram, or question shown inside them.
+  - Solve each question thoroughly and clearly organize your response to show both the **Answer (คำตอบ)** and the **Step-by-Step Method / Reasoning (วิธีคิดทีละขั้นตอน)** so the student can follow and understand every step.
+  - Still use \`calculate_math\`, \`render_data_table\`, and \`render_math_canvas\` whenever calculations, comparisons, or coordinate diagrams help explain the uploaded homework.
 - STRICT RULE (NEVER VIOLATE): NEVER use any emojis, emoticons, or pictorial Unicode symbols anywhere in your output (no 😊, ✨, 🚀, ✅, 📌, 👉, 💡, 🔥, etc.). Output plain text and clean Markdown syntax only.
 - Respond in the same language the user writes in (defaulting to English unless they write in Thai).`
         : `คุณคือ OpenSolver (QuizCraft AI) ผู้ช่วยด้านการเรียน การวิเคราะห์โจทย์ และติวเตอร์วิชาการที่ฉลาด ชัดเจน และแม่นยำ
 - ตอบคำถามอย่างตรงประเด็น ถูกต้อง และอธิบายเป็นขั้นตอนเมื่อช่วยแก้โจทย์ คณิตศาสตร์ วิทยาศาสตร์ การเงิน การเขียนโค้ด หรือสรุปเนื้อหาบทเรียน
+- การอ่านรูปภาพและไฟล์การบ้านที่แนบมา:
+  - ทุกครั้งที่ผู้ใช้ส่งรูปภาพ PDF หรือไฟล์เอกสารการบ้านเข้ามา ให้อ่านโจทย์ ตัวเลข รูปภาพ หรือคำถามทุกข้อในไฟล์นั้นอย่างละเอียดรอบคอบ
+  - แสดงผลลัพธ์อย่างเป็นระบบโดยระบุให้เห็นชัดเจนทั้ง **คำตอบ** และ **วิธีคิด / วิธีทำทีละขั้นตอน** เพื่อให้ผู้เรียนเข้าใจที่มาและการคำนวณทุกจุด
+  - เรียกใช้ \`calculate_math\`, \`render_data_table\`, และ \`render_math_canvas\` ร่วมด้วยเมื่อโจทย์ในไฟล์มีสมการ การคำนวณ หรือกราฟที่ควรจำลอง
 - การคำนวณคณิตศาสตร์จริงด้วย Math.js: ทุกครั้งที่มีการคิดเลข คำนวณสูตร (คณิต ฟิสิกส์ เคมี สถิติ การเงิน ฯลฯ) หรือผู้ใช้ส่งสูตร/โจทย์ตัวเลขมา:
   1. ระบุ **สูตรที่ใช้** ให้ชัดเจน
   2. **ดึงตัวแปรและค่าจากโจทย์** ออกมาให้ครบถ้วน
@@ -391,7 +470,7 @@ export async function POST(req: NextRequest) {
 - การ์ดกระดาษพิกัด X-Y และจำลองกราฟ/สมการ (\`render_math_canvas\`):
   - **เรียกใช้เฉพาะเมื่อเป็นวิชาคณิตศาสตร์ ฟิสิกส์ เคมี สถิติ วิศวกรรม เศรษฐศาสตร์ หรือศาสตร์การคำนวณที่ต้องใช้กราฟ เส้นโค้ง เวกเตอร์ เมทริกซ์ เศษส่วน หรือภาพจำลองเชิงพิกัดเท่านั้น** (ห้ามเรียกใช้ในการสนทนาทั่วไป ภาษา ประวัติศาสตร์ หรือคำถามที่ไม่ใช่สายคำนวณ/จำลองค่า)
   - เลือก \`gridMode\` ให้เหมาะกับเนื้อหา:
-    - \`"axes"\`: มีแกน X-Y พร้อมตัวเลขและเส้นกริด สำหรับพล็อตกราฟสมการ (\`functions\` เช่น \`x^2 - 4\`, \`sin(x)\`), เส้นโค้ง (\`curves\`), เวกเตอร์ (\`lines\` ที่มี \`arrowEnd: true\`), หรือกราฟฟิสิกส์/จุดตัด
+    - \`"axes"\`: มีแกน X-Y พร้อมตัวเลขและเส้นกริด สำหรับพล็อตกราฟสมการ (\`functions\` เช่น \`x^2 - 4\`, \`sin(x)\`), เส้นโค้ง (\`curves\`), เวกเตอร์ (\`lines\` ที่มี \`arrowEnd: true\`), หรือกราฟฟิกส์/จุดตัด
     - \`"invisible"\`: กระดาษขาวว่างที่มีพิกัด X-Y ล่องหนคอยจัดวางตำแหน่งตัวอักษร ตัวเลข เศษส่วน เมทริกซ์ และเส้นลากเชื่อมต่างๆ (เหมาะกับการแสดงวิธีทำเศษส่วน เมทริกซ์ การแยกตัวประกอบ หรือเรขาคณิตที่ไม่ต้องโชว์แกน)
   - วางข้อความ เลข เศษส่วน หรือเมทริกซ์ผ่าน \`annotations\` โดยตั้ง \`isLatex: true\` เมื่อเป็นนิพจน์คณิต (เช่น \`\\\\frac{3}{4}\`, \`\\\\begin{bmatrix} 1 & 2 \\\\\\\\ 3 & 4 \\\\end{bmatrix}\`, \`\\\\vec{v}\`) เลือกใช้สีที่อ่านง่ายชัดเจน (\`#0284C7\`, \`#DC2626\`, \`#059669\`, \`#D97706\`, \`#7C3AED\`, \`#1F1E1D\`) และกำหนดขอบเขต \`xMin\`, \`xMax\`, \`yMin\`, \`yMax\`, \`xStep\`, \`yStep\` รวมถึง \`canvasHeight\` (\`"compact"\` / \`"standard"\` / \`"tall"\`) ให้พอดีไม่ซ้อนทับกัน
 - การเขียนข้อความให้อ่านเป็นธรรมชาติ (ห้ามใช้สัญลักษณ์รกรุงรัง):

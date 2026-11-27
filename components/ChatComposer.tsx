@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import Image from "next/image";
 import {
   Plus,
   X,
@@ -10,10 +11,16 @@ import {
   ArrowUp,
   BookOpen,
   ClipboardList,
+  FileText,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useLanguage } from "@/lib/language-context";
 import { StudyHistoryItem } from "@/lib/firestore-study-history";
+import {
+  type ChatUploadedFile,
+  formatFileSize,
+  processChatFileList,
+} from "@/lib/chat-files";
 
 interface ChatComposerProps {
   value: string;
@@ -21,8 +28,11 @@ interface ChatComposerProps {
   onSubmit?: () => void;
   isStreaming?: boolean;
   attachedItems?: StudyHistoryItem[];
+  attachedFiles?: ChatUploadedFile[];
   onOpenStudyHistory?: () => void;
   onRemoveAttachedItem?: (itemId: string) => void;
+  onAddFiles?: (files: ChatUploadedFile[]) => void;
+  onRemoveAttachedFile?: (fileId: string) => void;
 }
 
 export const ChatComposer = React.memo(function ChatComposer({
@@ -31,16 +41,24 @@ export const ChatComposer = React.memo(function ChatComposer({
   onSubmit,
   isStreaming = false,
   attachedItems = [],
+  attachedFiles = [],
   onOpenStudyHistory,
   onRemoveAttachedItem,
+  onAddFiles,
+  onRemoveAttachedFile,
 }: ChatComposerProps) {
   const { language } = useLanguage();
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const hasContentToSend =
-    value.trim().length > 0 || attachedItems.length > 0;
+    value.trim().length > 0 ||
+    attachedItems.length > 0 ||
+    attachedFiles.length > 0;
 
   // Close popup on Escape or click outside
   useEffect(() => {
@@ -116,11 +134,55 @@ export const ChatComposer = React.memo(function ChatComposer({
     },
   ];
 
+  const handleFileSelection = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files;
+    if (!selected || selected.length === 0) return;
+
+    const { files, errors } = await processChatFileList(
+      selected,
+      language,
+      attachedFiles.length
+    );
+
+    e.target.value = "";
+
+    if (errors.length > 0) {
+      setFileError(errors[0]);
+    } else {
+      setFileError(null);
+    }
+
+    if (files.length > 0) {
+      onAddFiles?.(files);
+    }
+  };
+
   return (
     <div
       ref={containerRef}
       className="w-full max-w-3xl mx-auto px-4 pb-5 sm:pb-6 pt-2 relative"
     >
+      {/* Persistent hidden file inputs so mobile browsers always fire onChange even after closing menu */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={handleFileSelection}
+        className="hidden"
+        aria-hidden="true"
+        tabIndex={-1}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.txt,.md,.markdown,.csv,.tsv,.json,.xml,.html,.htm,.py,.js,.ts,.tsx,.jsx,.java,.c,.cpp,.h,.cs,.go,.rs,.sql,.yaml,.yml,.log,.tex,application/pdf,text/*"
+        multiple
+        onChange={handleFileSelection}
+        className="hidden"
+        aria-hidden="true"
+        tabIndex={-1}
+      />
       {/* Popup Attachment Menu above the Chat Input */}
       <AnimatePresence>
         {isAddMenuOpen && (
@@ -167,9 +229,16 @@ export const ChatComposer = React.memo(function ChatComposer({
                     type="button"
                     id={`chat-add-option-${option.id}`}
                     onClick={() => {
-                      setIsAddMenuOpen(false);
+                      setFileError(null);
                       if (option.id === "study-history") {
+                        setIsAddMenuOpen(false);
                         onOpenStudyHistory?.();
+                      } else if (option.id === "image") {
+                        imageInputRef.current?.click();
+                        setIsAddMenuOpen(false);
+                      } else if (option.id === "file") {
+                        fileInputRef.current?.click();
+                        setIsAddMenuOpen(false);
                       }
                     }}
                     className="flex flex-col items-center justify-center py-4 sm:py-5 px-2 rounded-2xl bg-[#FAF9F5] hover:bg-[#F2F0EA] border border-[#ECEAE3] transition-colors cursor-pointer group"
@@ -188,12 +257,82 @@ export const ChatComposer = React.memo(function ChatComposer({
         )}
       </AnimatePresence>
 
-      {/* Attached Study History Chips Strip (above composer bar, mobile AI app style) */}
-      {attachedItems.length > 0 && (
+      {/* File validation error banner if unsupported or oversized */}
+      {fileError && (
+        <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl bg-[#EFECE4] border border-[#DFDDD6] px-3.5 py-2 text-xs text-[#1F1E1D]">
+          <span>{fileError}</span>
+          <button
+            type="button"
+            onClick={() => setFileError(null)}
+            aria-label={language === "en" ? "Dismiss error" : "ปิดข้อความแจ้งเตือน"}
+            className="w-5 h-5 rounded-full flex items-center justify-center text-[#6B6A65] hover:text-[#1F1E1D] hover:bg-[#E5E3DC] transition-colors cursor-pointer shrink-0"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Attached Files & Study History Chips Strip (above composer bar) */}
+      {(attachedFiles.length > 0 || attachedItems.length > 0) && (
         <div
           id="chat-attached-items-bar"
           className="flex items-center gap-2 overflow-x-auto pb-2.5 px-1 no-scrollbar"
         >
+          {attachedFiles.map((file) => (
+            <div
+              key={file.id}
+              className="flex items-center gap-2.5 bg-white border border-[#E5E3DC] rounded-2xl px-2.5 py-2 shadow-[0_1px_6px_rgba(31,30,29,0.04)] shrink-0 max-w-[240px]"
+            >
+              {file.kind === "image" && file.previewUrl ? (
+                <div className="w-10 h-10 rounded-xl overflow-hidden border border-[#E5E3DC] bg-[#FAF9F5] shrink-0">
+                  <Image
+                    src={file.previewUrl}
+                    alt={file.name}
+                    width={40}
+                    height={40}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ) : (
+                <span className="w-10 h-10 rounded-xl bg-[#FAF9F5] border border-[#E5E3DC] text-[#1F1E1D] flex items-center justify-center shrink-0">
+                  <FileText className="w-4 h-4" />
+                </span>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-medium text-[#1F1E1D] truncate">
+                  {file.name}
+                </div>
+                <div className="text-[11px] text-[#6B6A65] truncate">
+                  {file.kind === "pdf"
+                    ? "PDF"
+                    : file.kind === "image"
+                      ? language === "en"
+                        ? "Photo"
+                        : "รูปภาพ"
+                      : language === "en"
+                        ? "File"
+                        : "ไฟล์"}{" "}
+                  · {formatFileSize(file.size)}
+                </div>
+              </div>
+              {onRemoveAttachedFile && (
+                <button
+                  type="button"
+                  onClick={() => onRemoveAttachedFile(file.id)}
+                  aria-label={
+                    language === "en"
+                      ? `Remove ${file.name}`
+                      : `เอา ${file.name} ออก`
+                  }
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-[#6B6A65] hover:text-[#1F1E1D] hover:bg-[#EFECE4] transition-colors cursor-pointer shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          ))}
+
           {attachedItems.map((item) => {
             const TypeIcon = item.type === "summary" ? BookOpen : ClipboardList;
             const typeLabel =

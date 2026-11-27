@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import {
   Copy,
   Check,
@@ -14,6 +15,7 @@ import {
   Table2,
   Compass,
   PenLine,
+  FileText,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
@@ -40,6 +42,7 @@ import { useLanguage } from "@/lib/language-context";
 import { StructuredTableData, tableToTsv } from "@/lib/structured-table";
 import { MathCanvasData } from "@/lib/math-canvas";
 import { markdownToCleanPlainText } from "@/lib/plain-text";
+import { type ChatUploadedFile, formatFileSize } from "@/lib/chat-files";
 
 export interface ChatAttachmentMeta {
   id: string;
@@ -62,6 +65,7 @@ export interface ChatMessage {
   content: string;
   apiContent?: string;
   attachments?: ChatAttachmentMeta[];
+  uploadedFiles?: ChatUploadedFile[];
   tables?: StructuredTableData[];
   canvases?: MathCanvasData[];
   personaId?: string;
@@ -75,6 +79,8 @@ interface ChatMessageListProps {
   messages: ChatMessage[];
   onRetry: (aiMessageId: string) => void;
   onFeedback: (aiMessageId: string, vote: "up" | "down") => void;
+  onCreateQuizFromMessage?: (msg: ChatMessage) => void;
+  onSummarizeFromMessage?: (msg: ChatMessage) => void;
   personas?: AiPersona[];
   activePersona?: AiPersona | null;
 }
@@ -202,6 +208,8 @@ interface ChatMessageRowProps {
   onCopy: (msg: ChatMessage) => void;
   onRetry: (aiMessageId: string) => void;
   onFeedback: (aiMessageId: string, vote: "up" | "down") => void;
+  onCreateQuizFromMessage?: (msg: ChatMessage) => void;
+  onSummarizeFromMessage?: (msg: ChatMessage) => void;
   onExpandTable: (table: StructuredTableData) => void;
   onExpandCanvas: (canvas: MathCanvasData) => void;
 }
@@ -218,12 +226,67 @@ const MemoizedChatMessageRow = React.memo(function ChatMessageRow({
   onCopy,
   onRetry,
   onFeedback,
+  onCreateQuizFromMessage,
+  onSummarizeFromMessage,
   onExpandTable,
   onExpandCanvas,
 }: ChatMessageRowProps) {
   if (msg.role === "user") {
     return (
-      <div className="flex flex-col items-end gap-1.5 w-full">
+      <div className="flex flex-col items-end gap-2 w-full">
+        {msg.uploadedFiles && msg.uploadedFiles.length > 0 && (
+          <div className="flex flex-wrap justify-end gap-2 max-w-[84%] sm:max-w-[74%]">
+            {msg.uploadedFiles.map((file) => {
+              const imageSrc =
+                file.kind === "image"
+                  ? file.previewUrl ||
+                    (file.base64Data
+                      ? `data:${file.mimeType || "image/jpeg"};base64,${file.base64Data}`
+                      : "")
+                  : "";
+
+              if (file.kind === "image" && imageSrc) {
+                return (
+                  <div
+                    key={file.id}
+                    className="overflow-hidden rounded-2xl border border-[#E5E3DC] bg-white shadow-[0_1px_6px_rgba(31,30,29,0.05)] max-w-[260px]"
+                  >
+                    <Image
+                      src={imageSrc}
+                      alt={file.name}
+                      width={260}
+                      height={200}
+                      referrerPolicy="no-referrer"
+                      className="max-h-56 w-auto max-w-full object-contain bg-[#FAF9F5]"
+                    />
+                    <div className="px-2.5 py-1.5 border-t border-[#ECEAE3] bg-white flex items-center justify-between gap-2 text-[11px] text-[#6B6A65]">
+                      <span className="truncate font-medium text-[#1F1E1D]">
+                        {file.name}
+                      </span>
+                      <span className="shrink-0">{formatFileSize(file.size)}</span>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div
+                  key={file.id}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-white border border-[#E5E3DC] px-3 py-2 text-xs text-[#1F1E1D]"
+                >
+                  <FileText className="w-4 h-4 text-[#6B6A65] shrink-0" />
+                  <div className="min-w-0 max-w-[180px]">
+                    <div className="font-medium truncate">{file.name}</div>
+                    <div className="text-[11px] text-[#6B6A65]">
+                      {file.kind === "pdf" ? "PDF" : file.kind === "image" ? (language === "en" ? "Image" : "รูปภาพ") : (language === "en" ? "File" : "ไฟล์")} · {formatFileSize(file.size)}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {msg.attachments && msg.attachments.length > 0 && (
           <div className="flex flex-wrap justify-end gap-1.5 max-w-[84%] sm:max-w-[74%]">
             {msg.attachments.map((att) => {
@@ -313,9 +376,9 @@ const MemoizedChatMessageRow = React.memo(function ChatMessageRow({
         )}
       </div>
 
-      {/* 4 Uniform Action Buttons under completed AI responses only */}
+      {/* Action Buttons under completed AI responses */}
       {msg.status !== "streaming" && (
-        <div className="mt-2.5 flex items-center gap-1">
+        <div className="mt-2.5 flex flex-wrap items-center gap-1">
           {/* 1. Copy */}
           <button
             type="button"
@@ -384,6 +447,48 @@ const MemoizedChatMessageRow = React.memo(function ChatMessageRow({
               fill={msg.feedback === "down" ? "currentColor" : "none"}
             />
           </button>
+
+          {/* 5 & 6. Create Quiz + Summarize directly from this response */}
+          {msg.status === "done" &&
+            (hasText || hasTables || hasCanvases) &&
+            (onCreateQuizFromMessage || onSummarizeFromMessage) && (
+              <>
+                <span
+                  className="mx-1 h-4 w-px bg-[#E5E3DC]"
+                  aria-hidden="true"
+                />
+                {onCreateQuizFromMessage && (
+                  <button
+                    type="button"
+                    onClick={() => onCreateQuizFromMessage(msg)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#1F1E1D] bg-[#EFECE4]/70 hover:bg-[#EFECE4] transition-colors cursor-pointer"
+                    aria-label={
+                      language === "en"
+                        ? "Create quiz from this response"
+                        : "ทำแบบทดสอบจากคำตอบนี้"
+                    }
+                  >
+                    <ClipboardList className="w-3.5 h-3.5 shrink-0 text-[#6B6A65]" />
+                    <span>{language === "en" ? "Create Quiz" : "ทำแบบทดสอบ"}</span>
+                  </button>
+                )}
+                {onSummarizeFromMessage && (
+                  <button
+                    type="button"
+                    onClick={() => onSummarizeFromMessage(msg)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-[#1F1E1D] bg-[#EFECE4]/70 hover:bg-[#EFECE4] transition-colors cursor-pointer"
+                    aria-label={
+                      language === "en"
+                        ? "Summarize this response"
+                        : "สรุปเนื้อหาจากคำตอบนี้"
+                    }
+                  >
+                    <BookOpen className="w-3.5 h-3.5 shrink-0 text-[#6B6A65]" />
+                    <span>{language === "en" ? "Summarize" : "สรุปเนื้อหา"}</span>
+                  </button>
+                )}
+              </>
+            )}
         </div>
       )}
     </div>
@@ -394,6 +499,8 @@ export function ChatMessageList({
   messages,
   onRetry,
   onFeedback,
+  onCreateQuizFromMessage,
+  onSummarizeFromMessage,
   personas = [],
   activePersona = null,
 }: ChatMessageListProps) {
@@ -517,6 +624,8 @@ export function ChatMessageList({
               onCopy={handleCopy}
               onRetry={onRetry}
               onFeedback={onFeedback}
+              onCreateQuizFromMessage={onCreateQuizFromMessage}
+              onSummarizeFromMessage={onSummarizeFromMessage}
               onExpandTable={setExpandedTable}
               onExpandCanvas={setExpandedCanvas}
             />
