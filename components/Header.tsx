@@ -24,6 +24,7 @@ import { useFirebase } from "@/lib/firebase-context";
 import { AiPersona } from "@/lib/firestore-personas";
 import { PersonaAvatar } from "@/components/PersonaAvatarIcon";
 import { SavedChatSession } from "@/lib/browser-chats";
+import { PWAInstallButton } from "@/components/PWAInstallButton";
 
 export type AppPage = "chat" | "learn";
 export type ChatMode = "casual" | "tutor";
@@ -289,6 +290,9 @@ export function Header({
                 <Globe className="w-4 h-4 text-[#1F1E1D] shrink-0" />
                 <span>{language === "en" ? "EN / TH" : "TH / EN"}</span>
               </button>
+
+              {/* In-app PWA Install Button (only renders when installable or on iOS) */}
+              <PWAInstallButton variant="topbar" />
             </div>
 
             {/* Top-left Persona & Mode Switcher (Mobile-friendly tap target) */}
@@ -709,6 +713,11 @@ export function Header({
                     <MessageSquare className="w-4 h-4 text-[#1F1E1D] shrink-0" />
                     <span>{language === "en" ? "Send Feedback" : "ส่งคำแนะนำ"}</span>
                   </button>
+
+                  <PWAInstallButton
+                    variant="menu"
+                    onAction={() => setIsOpen(false)}
+                  />
 
                   {user && (
                     <div className="pt-2 mt-1 border-t border-[#ECEAE3] space-y-1">

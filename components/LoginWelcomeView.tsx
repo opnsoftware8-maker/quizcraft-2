@@ -4,6 +4,7 @@ import React from "react";
 import { Globe, Chrome, Loader2 } from "lucide-react";
 import { useLanguage } from "@/lib/language-context";
 import { useFirebase } from "@/lib/firebase-context";
+import { PWAInstallButton } from "@/components/PWAInstallButton";
 
 export function LoginWelcomeView() {
   const { language, toggleLanguage } = useLanguage();
@@ -31,7 +32,7 @@ export function LoginWelcomeView() {
               <span>{language === "en" ? "EN / TH" : "TH / EN"}</span>
             </button>
           </div>
-          <div aria-hidden="true" />
+          <PWAInstallButton variant="topbar" />
         </div>
       </header>
 
