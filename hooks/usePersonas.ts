@@ -186,6 +186,11 @@ export function usePersonas(userId: string) {
     };
   }, [authReady, user, userId]);
 
+  const emotionsRef = useRef<AiEmotion[]>(emotions);
+  useEffect(() => {
+    emotionsRef.current = emotions;
+  }, [emotions]);
+
   const activePersona = useMemo<AiPersona | null>(() => {
     if (!activePersonaId) return null;
     return personas.find((p) => p.id === activePersonaId) || null;
@@ -254,11 +259,11 @@ export function usePersonas(userId: string) {
           userId,
           personaId: input.personaId,
           drafts: input.emotions,
-          existingEmotions: emotions,
+          existingEmotions: emotionsRef.current,
         });
       }
     },
-    [userId, emotions]
+    [userId]
   );
 
   const saveEmotionsForPersona = useCallback(
@@ -267,10 +272,10 @@ export function usePersonas(userId: string) {
         userId,
         personaId,
         drafts,
-        existingEmotions: emotions,
+        existingEmotions: emotionsRef.current,
       });
     },
-    [userId, emotions]
+    [userId]
   );
 
   const deletePersona = useCallback(

@@ -123,28 +123,214 @@ export function normalizePersonaImage(image: unknown): string {
   return "";
 }
 
+const IMAGE_FILE_EXTENSIONS = new Set([
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "gif",
+  "bmp",
+  "avif",
+  "svg",
+  "heic",
+  "heif",
+  "jfif",
+]);
+
+const KNOWN_NON_IMAGE_EXTENSIONS = new Set([
+  "pdf",
+  "txt",
+  "md",
+  "csv",
+  "json",
+  "zip",
+  "rar",
+  "7z",
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "ppt",
+  "pptx",
+  "mp3",
+  "wav",
+  "mp4",
+  "mov",
+  "avi",
+  "mkv",
+  "exe",
+  "dmg",
+]);
+
+function getFileExtension(name: string): string {
+  const parts = name.toLowerCase().trim().split(".");
+  return parts.length > 1 ? parts[parts.length - 1] : "";
+}
+
+function isLikelyImageFile(file: File): boolean {
+  const mime = (file.type || "").toLowerCase().trim();
+  if (mime.startsWith("image/")) return true;
+  const ext = getFileExtension(file.name || "");
+  if (IMAGE_FILE_EXTENSIONS.has(ext)) return true;
+  if (KNOWN_NON_IMAGE_EXTENSIONS.has(ext)) return false;
+  // Android/Google Drive/some mobile browsers supply empty MIME or application/octet-stream for photos
+  return mime === "" || mime === "application/octet-stream";
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string" && reader.result.length > 0) {
+        resolve(reader.result);
+      } else {
+        reject(new Error("IMAGE_LOAD_FAILED"));
+      }
+    };
+    reader.onerror = () => reject(new Error("IMAGE_LOAD_FAILED"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadHtmlImageFromSrc(src: string, timeoutMs = 15000): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const el = new window.Image();
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error("IMAGE_LOAD_FAILED"));
+      }
+    }, timeoutMs);
+
+    el.onload = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(el);
+    };
+    el.onerror = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      reject(new Error("IMAGE_LOAD_FAILED"));
+    };
+    el.src = src;
+  });
+}
+
+interface DecodedImageSource {
+  width: number;
+  height: number;
+  drawToCanvas: (ctx: CanvasRenderingContext2D, sx: number, sy: number, sw: number, sh: number, dw: number, dh: number) => void;
+  cleanup: () => void;
+}
+
+async function decodeImageFile(file: File): Promise<DecodedImageSource> {
+  // Strategy 1: Native createImageBitmap (fastest, handles EXIF orientation natively, low memory)
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(file);
+      if (bitmap.width > 0 && bitmap.height > 0) {
+        return {
+          width: bitmap.width,
+          height: bitmap.height,
+          drawToCanvas: (ctx, sx, sy, sw, sh, dw, dh) => {
+            ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, dw, dh);
+          },
+          cleanup: () => {
+            try {
+              bitmap.close();
+            } catch {
+              // ignore
+            }
+          },
+        };
+      }
+      bitmap.close();
+    } catch {
+      // Fall through to HTMLImageElement strategies
+    }
+  }
+
+  // Strategy 2: ObjectURL + HTMLImageElement
+  let objectUrl = "";
+  try {
+    objectUrl = URL.createObjectURL(file);
+    const img = await loadHtmlImageFromSrc(objectUrl);
+    const width = img.naturalWidth || img.width;
+    const height = img.naturalHeight || img.height;
+    if (width > 0 && height > 0) {
+      return {
+        width,
+        height,
+        drawToCanvas: (ctx, sx, sy, sw, sh, dw, dh) => {
+          ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+        },
+        cleanup: () => {
+          URL.revokeObjectURL(objectUrl);
+        },
+      };
+    }
+    URL.revokeObjectURL(objectUrl);
+    objectUrl = "";
+  } catch {
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = "";
+    }
+  }
+
+  // Strategy 3: FileReader DataURL + HTMLImageElement (works on Android content:// URIs & strict WebViews)
+  const rawDataUrl = await readFileAsDataUrl(file);
+  const img = await loadHtmlImageFromSrc(rawDataUrl);
+  const width = img.naturalWidth || img.width;
+  const height = img.naturalHeight || img.height;
+  if (width <= 0 || height <= 0) {
+    throw new Error("IMAGE_LOAD_FAILED");
+  }
+  return {
+    width,
+    height,
+    drawToCanvas: (ctx, sx, sy, sw, sh, dw, dh) => {
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
+    },
+    cleanup: () => {},
+  };
+}
+
 /**
- * Compresses and center-crops a user-selected image file into a square JPEG data URL
+ * Compresses and center-crops a user-selected image file into a square JPEG/WebP data URL
  * safely within Firestore document size and security rule bounds (< 60 KB).
  */
 export async function processPersonaAvatarFile(file: File): Promise<string> {
-  if (!file.type.startsWith("image/")) {
+  if (!file || file.size <= 0) {
+    throw new Error("IMAGE_LOAD_FAILED");
+  }
+  if (!isLikelyImageFile(file)) {
     throw new Error("INVALID_IMAGE_TYPE");
   }
-  if (file.size > 10 * 1024 * 1024) {
+  if (file.size > 25 * 1024 * 1024) {
     throw new Error("IMAGE_TOO_LARGE");
   }
 
-  const objectUrl = URL.createObjectURL(file);
+  let decoded: DecodedImageSource;
   try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new window.Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error("IMAGE_LOAD_FAILED"));
-      el.src = objectUrl;
-    });
+    decoded = await decodeImageFile(file);
+  } catch {
+    throw new Error(
+      file.type && !file.type.startsWith("image/")
+        ? "INVALID_IMAGE_TYPE"
+        : "IMAGE_LOAD_FAILED"
+    );
+  }
 
-    const renderSquare = (size: number, quality: number): string => {
+  try {
+    const renderSquare = (
+      size: number,
+      mime: "image/jpeg" | "image/webp",
+      quality: number
+    ): string => {
       const canvas = document.createElement("canvas");
       canvas.width = size;
       canvas.height = size;
@@ -153,25 +339,34 @@ export async function processPersonaAvatarFile(file: File): Promise<string> {
 
       ctx.fillStyle = "#FFFFFF";
       ctx.fillRect(0, 0, size, size);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
 
-      const minDim = Math.min(img.naturalWidth || size, img.naturalHeight || size);
-      const sx = ((img.naturalWidth || size) - minDim) / 2;
-      const sy = ((img.naturalHeight || size) - minDim) / 2;
+      const minDim = Math.min(decoded.width, decoded.height);
+      const sx = Math.max(0, (decoded.width - minDim) / 2);
+      const sy = Math.max(0, (decoded.height - minDim) / 2);
 
-      ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, size, size);
-      return canvas.toDataURL("image/jpeg", quality);
+      decoded.drawToCanvas(ctx, sx, sy, minDim, minDim, size, size);
+      return canvas.toDataURL(mime, quality);
     };
 
-    const attempts: Array<[number, number]> = [
-      [160, 0.82],
-      [144, 0.74],
-      [128, 0.65],
-      [96, 0.58],
+    const attempts: Array<[number, "image/jpeg" | "image/webp", number]> = [
+      [192, "image/jpeg", 0.85],
+      [160, "image/jpeg", 0.82],
+      [144, "image/jpeg", 0.76],
+      [128, "image/webp", 0.74],
+      [128, "image/jpeg", 0.68],
+      [112, "image/webp", 0.66],
+      [96, "image/jpeg", 0.62],
+      [96, "image/webp", 0.56],
+      [72, "image/jpeg", 0.52],
+      [64, "image/jpeg", 0.45],
     ];
 
-    for (const [size, quality] of attempts) {
-      const dataUrl = renderSquare(size, quality);
+    for (const [size, mime, quality] of attempts) {
+      const dataUrl = renderSquare(size, mime, quality);
       if (
+        dataUrl.length > 32 &&
         dataUrl.length <= MAX_PERSONA_IMAGE_LENGTH &&
         SAFE_DATA_IMAGE_PATTERN.test(dataUrl)
       ) {
@@ -181,7 +376,7 @@ export async function processPersonaAvatarFile(file: File): Promise<string> {
 
     throw new Error("IMAGE_COMPRESS_FAILED");
   } finally {
-    URL.revokeObjectURL(objectUrl);
+    decoded.cleanup();
   }
 }
 

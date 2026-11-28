@@ -37,7 +37,7 @@ interface EmotionDraftRowProps {
   index: number;
   language: "th" | "en";
   disabled: boolean;
-  onChange: (next: EmotionDraftRowState) => void;
+  onPatch: (localKey: string, patch: Partial<EmotionDraftRowState>) => void;
   onRemove: () => void;
   onProcessingChange: (localKey: string, isProcessing: boolean) => void;
   onError: (msg: string) => void;
@@ -48,16 +48,17 @@ function EmotionDraftRow({
   index,
   language,
   disabled,
-  onChange,
+  onPatch,
   onRemove,
   onProcessingChange,
   onError,
 }: EmotionDraftRowProps) {
   const rowFileInputRef = useRef<HTMLInputElement>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const inputId = `emotion-photo-input-${draft.localKey}`;
 
-  const handleRowFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const processSelectedFile = async (file: File | undefined) => {
     if (!file) return;
 
     setIsProcessing(true);
@@ -66,7 +67,7 @@ function EmotionDraftRow({
 
     try {
       const compressedDataUrl = await processPersonaAvatarFile(file);
-      onChange({ ...draft, image: compressedDataUrl });
+      onPatch(draft.localKey, { image: compressedDataUrl });
     } catch (err: any) {
       const code = String(err?.message || "");
       if (code === "INVALID_IMAGE_TYPE") {
@@ -78,8 +79,8 @@ function EmotionDraftRow({
       } else if (code === "IMAGE_TOO_LARGE") {
         onError(
           language === "en"
-            ? "Image file is too large. Please select an image under 10 MB."
-            : "ไฟล์รูปภาพมีขนาดใหญ่เกินไป กรุณาเลือกรูปที่มีขนาดไม่เกิน 10 MB"
+            ? "Image file is too large. Please select an image under 25 MB."
+            : "ไฟล์รูปภาพมีขนาดใหญ่เกินไป กรุณาเลือกรูปที่มีขนาดไม่เกิน 25 MB"
         );
       } else {
         onError(
@@ -91,20 +92,48 @@ function EmotionDraftRow({
     } finally {
       setIsProcessing(false);
       onProcessingChange(draft.localKey, false);
-      if (rowFileInputRef.current) {
-        rowFileInputRef.current.value = "";
-      }
     }
   };
 
+  const handleRowFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset synchronously before async work so re-selecting the same photo always triggers onChange
+    e.target.value = "";
+    if (!file) return;
+    void processSelectedFile(file);
+  };
+
+  const handleRowDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (disabled || isProcessing) return;
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      void processSelectedFile(file);
+    }
+  };
+
+  const isLocked = disabled || isProcessing;
+
   return (
-    <div className="rounded-xl border border-[#DFDDD6] bg-white p-3 space-y-2.5">
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (!isLocked) setIsDragging(true);
+      }}
+      onDragLeave={() => setIsDragging(false)}
+      onDrop={handleRowDrop}
+      className={`rounded-xl border bg-white p-3 space-y-2.5 transition-colors ${
+        isDragging ? "border-[#1F1E1D] bg-[#FAF9F5]" : "border-[#DFDDD6]"
+      }`}
+    >
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => rowFileInputRef.current?.click()}
-          disabled={disabled || isProcessing}
-          className="rounded-full shrink-0 cursor-pointer focus:outline-none disabled:opacity-50"
+        <label
+          htmlFor={isLocked ? undefined : inputId}
+          className={`relative rounded-full shrink-0 focus:outline-none ${
+            isLocked ? "opacity-60 cursor-not-allowed" : "cursor-pointer"
+          }`}
           aria-label={
             language === "en"
               ? `Upload image for emotion ${index + 1}`
@@ -116,14 +145,21 @@ function EmotionDraftRow({
             alt={draft.label || `Emotion ${index + 1}`}
             sizeClass="w-11 h-11"
           />
-        </button>
+          {isProcessing && (
+            <span className="absolute inset-0 rounded-full bg-[#FAF9F5]/80 flex items-center justify-center">
+              <Loader2 className="w-4 h-4 animate-spin text-[#1F1E1D]" />
+            </span>
+          )}
+        </label>
 
         <input
           ref={rowFileInputRef}
+          id={inputId}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/*"
+          accept="image/*"
+          disabled={isLocked}
           onChange={handleRowFileChange}
-          className="hidden"
+          className="sr-only"
         />
 
         <div className="flex-1 min-w-0">
@@ -133,7 +169,7 @@ function EmotionDraftRow({
             value={draft.label}
             onChange={(e) => {
               onError("");
-              onChange({ ...draft, label: e.target.value });
+              onPatch(draft.localKey, { label: e.target.value });
             }}
             placeholder={
               language === "en"
@@ -148,7 +184,7 @@ function EmotionDraftRow({
         <button
           type="button"
           onClick={onRemove}
-          disabled={disabled || isProcessing}
+          disabled={disabled}
           className="p-2 rounded-lg text-[#6B6A65] hover:text-[#1F1E1D] hover:bg-[#EFECE4] transition-colors cursor-pointer shrink-0 disabled:opacity-50"
           aria-label={language === "en" ? "Remove emotion" : "ลบอารมณ์นี้"}
         >
@@ -157,11 +193,11 @@ function EmotionDraftRow({
       </div>
 
       <div className="flex items-center justify-between gap-2 pl-14">
-        <button
-          type="button"
-          onClick={() => rowFileInputRef.current?.click()}
-          disabled={disabled || isProcessing}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[#DFDDD6] bg-[#FAF9F5] hover:bg-[#EFECE4] text-xs font-medium text-[#1F1E1D] transition-colors cursor-pointer disabled:opacity-50"
+        <label
+          htmlFor={isLocked ? undefined : inputId}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-[#DFDDD6] bg-[#FAF9F5] hover:bg-[#EFECE4] text-xs font-medium text-[#1F1E1D] transition-colors ${
+            isLocked ? "opacity-50 cursor-not-allowed pointer-events-none" : "cursor-pointer"
+          }`}
         >
           {isProcessing ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -169,15 +205,19 @@ function EmotionDraftRow({
             <Upload className="w-3.5 h-3.5" />
           )}
           <span>
-            {draft.image
+            {isProcessing
               ? language === "en"
-                ? "Change Emotion Photo"
-                : "เปลี่ยนรูปอารมณ์"
-              : language === "en"
-                ? "Upload Emotion Photo"
-                : "อัปโหลดรูปอารมณ์"}
+                ? "Processing..."
+                : "กำลังประมวลผล..."
+              : draft.image
+                ? language === "en"
+                  ? "Change Emotion Photo"
+                  : "เปลี่ยนรูปอารมณ์"
+                : language === "en"
+                  ? "Upload Emotion Photo"
+                  : "อัปโหลดรูปอารมณ์"}
           </span>
-        </button>
+        </label>
 
         {!draft.image && (
           <span className="text-[11px] text-[#6B6A65]">
@@ -234,6 +274,7 @@ export function PersonaModal({
   const { language } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const backdropMouseDownRef = useRef<boolean>(false);
 
   const [isFormOpen, setIsFormOpen] = useState<boolean>(false);
   const [editingPersonaId, setEditingPersonaId] = useState<string | null>(null);
@@ -245,6 +286,7 @@ export function PersonaModal({
     Record<string, boolean>
   >({});
   const [isProcessingImage, setIsProcessingImage] = useState<boolean>(false);
+  const [isDraggingProfile, setIsDraggingProfile] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -334,6 +376,7 @@ export function PersonaModal({
     setEditingEmotionsPersonaId(null);
     setInlineEmotionDrafts([]);
     setInlineEmotionError("");
+    setProcessingEmotionKeys({});
   };
 
   const scrollToTopForm = () => {
@@ -441,8 +484,7 @@ export function PersonaModal({
     }
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const processProfileFile = async (file: File | undefined) => {
     if (!file) return;
 
     setIsProcessingImage(true);
@@ -462,8 +504,8 @@ export function PersonaModal({
       } else if (code === "IMAGE_TOO_LARGE") {
         setErrorMsg(
           language === "en"
-            ? "Image file is too large. Please select an image under 10 MB."
-            : "ไฟล์รูปภาพมีขนาดใหญ่เกินไป กรุณาเลือกรูปที่มีขนาดไม่เกิน 10 MB"
+            ? "Image file is too large. Please select an image under 25 MB."
+            : "ไฟล์รูปภาพมีขนาดใหญ่เกินไป กรุณาเลือกรูปที่มีขนาดไม่เกิน 25 MB"
         );
       } else {
         setErrorMsg(
@@ -474,10 +516,15 @@ export function PersonaModal({
       }
     } finally {
       setIsProcessingImage(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
     }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset synchronously before async work so re-selecting the same photo always triggers onChange
+    e.target.value = "";
+    if (!file) return;
+    void processProfileFile(file);
   };
 
   const handleSubmitForm = async (e: React.FormEvent) => {
@@ -612,18 +659,19 @@ export function PersonaModal({
               index={idx}
               language={language}
               disabled={isSavingInlineEmotions}
-              onChange={(next) =>
+              onPatch={(localKey, patch) =>
                 setInlineEmotionDrafts((prev) =>
                   prev.map((item) =>
-                    item.localKey === draft.localKey ? next : item
+                    item.localKey === localKey ? { ...item, ...patch } : item
                   )
                 )
               }
-              onRemove={() =>
+              onRemove={() => {
+                handleEmotionProcessingChange(draft.localKey, false);
                 setInlineEmotionDrafts((prev) =>
                   prev.filter((item) => item.localKey !== draft.localKey)
-                )
-              }
+                );
+              }}
               onProcessingChange={handleEmotionProcessingChange}
               onError={setInlineEmotionError}
             />
@@ -663,7 +711,14 @@ export function PersonaModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1F1E1D]/30 backdrop-blur-[1px]"
-      onClick={handleClose}
+      onMouseDown={(e) => {
+        backdropMouseDownRef.current = e.target === e.currentTarget;
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && backdropMouseDownRef.current) {
+          handleClose();
+        }
+      }}
     >
       <div
         className="bg-[#FAF9F5] rounded-2xl border border-[#E5E3DC] shadow-xl max-w-lg w-full overflow-hidden flex flex-col max-h-[88vh]"
@@ -738,16 +793,39 @@ export function PersonaModal({
               </div>
 
               {/* Profile Photo Upload (White circle by default when no image uploaded) */}
-              <div className="space-y-1.5">
+              <div
+                className={`space-y-1.5 rounded-xl p-2 -m-2 transition-colors ${
+                  isDraggingProfile ? "bg-[#EFECE4]/70" : ""
+                }`}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (!isProcessingImage && !isSaving) setIsDraggingProfile(true);
+                }}
+                onDragLeave={() => setIsDraggingProfile(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingProfile(false);
+                  if (isProcessingImage || isSaving) return;
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) void processProfileFile(file);
+                }}
+              >
                 <span className="block text-xs font-medium text-[#1F1E1D]">
                   {language === "en" ? "Profile Photo" : "รูปโปรไฟล์"}
                 </span>
                 <div className="flex items-center gap-3.5">
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isProcessingImage || isSaving}
-                    className="rounded-full focus:outline-none cursor-pointer shrink-0"
+                  <label
+                    htmlFor={
+                      isProcessingImage || isSaving
+                        ? undefined
+                        : "persona-photo-upload-input"
+                    }
+                    className={`relative rounded-full focus:outline-none shrink-0 ${
+                      isProcessingImage || isSaving
+                        ? "opacity-60 cursor-not-allowed"
+                        : "cursor-pointer"
+                    }`}
                     aria-label={
                       language === "en"
                         ? "Upload profile photo"
@@ -759,24 +837,36 @@ export function PersonaModal({
                       alt={nameInput || "Persona"}
                       sizeClass="w-14 h-14"
                     />
-                  </button>
+                    {isProcessingImage && (
+                      <span className="absolute inset-0 rounded-full bg-[#FAF9F5]/80 flex items-center justify-center">
+                        <Loader2 className="w-5 h-5 animate-spin text-[#1F1E1D]" />
+                      </span>
+                    )}
+                  </label>
 
                   <input
                     ref={fileInputRef}
                     id="persona-photo-upload-input"
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/*"
+                    accept="image/*"
+                    disabled={isProcessingImage || isSaving}
                     onChange={handleFileChange}
-                    className="hidden"
+                    className="sr-only"
                   />
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
+                    <label
+                      htmlFor={
+                        isProcessingImage || isSaving
+                          ? undefined
+                          : "persona-photo-upload-input"
+                      }
                       id="persona-photo-upload-btn"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isProcessingImage || isSaving}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#DFDDD6] bg-white hover:bg-[#EFECE4] text-xs font-medium text-[#1F1E1D] transition-colors cursor-pointer disabled:opacity-50"
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#DFDDD6] bg-white hover:bg-[#EFECE4] text-xs font-medium text-[#1F1E1D] transition-colors ${
+                        isProcessingImage || isSaving
+                          ? "opacity-50 cursor-not-allowed pointer-events-none"
+                          : "cursor-pointer"
+                      }`}
                     >
                       {isProcessingImage ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -784,15 +874,19 @@ export function PersonaModal({
                         <Upload className="w-3.5 h-3.5" />
                       )}
                       <span>
-                        {profileImageInput
+                        {isProcessingImage
                           ? language === "en"
-                            ? "Change Photo"
-                            : "เปลี่ยนรูปโปรไฟล์"
-                          : language === "en"
-                            ? "Upload Photo"
-                            : "อัปโหลดรูปโปรไฟล์"}
+                            ? "Processing..."
+                            : "กำลังประมวลผล..."
+                          : profileImageInput
+                            ? language === "en"
+                              ? "Change Photo"
+                              : "เปลี่ยนรูปโปรไฟล์"
+                            : language === "en"
+                              ? "Upload Photo"
+                              : "อัปโหลดรูปโปรไฟล์"}
                       </span>
-                    </button>
+                    </label>
 
                     {profileImageInput && (
                       <button
@@ -909,20 +1003,23 @@ export function PersonaModal({
                         index={idx}
                         language={language}
                         disabled={isSaving}
-                        onChange={(next) =>
+                        onPatch={(localKey, patch) =>
                           setEmotionDrafts((prev) =>
                             prev.map((item) =>
-                              item.localKey === draft.localKey ? next : item
+                              item.localKey === localKey
+                                ? { ...item, ...patch }
+                                : item
                             )
                           )
                         }
-                        onRemove={() =>
+                        onRemove={() => {
+                          handleEmotionProcessingChange(draft.localKey, false);
                           setEmotionDrafts((prev) =>
                             prev.filter(
                               (item) => item.localKey !== draft.localKey
                             )
-                          )
-                        }
+                          );
+                        }}
                         onProcessingChange={handleEmotionProcessingChange}
                         onError={setErrorMsg}
                       />

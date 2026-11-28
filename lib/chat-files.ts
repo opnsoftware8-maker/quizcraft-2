@@ -12,7 +12,8 @@ export interface ChatUploadedFile {
 }
 
 export const MAX_CHAT_FILES = 5;
-export const MAX_RAW_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+export const MAX_RAW_FILE_BYTES = 10 * 1024 * 1024; // 10 MB for docs/text
+export const MAX_RAW_IMAGE_BYTES = 25 * 1024 * 1024; // 25 MB for phone photos (compressed before send)
 export const MAX_PDF_BYTES = 8 * 1024 * 1024; // 8 MB
 export const MAX_TEXT_FILE_CHARS = 100000;
 
@@ -23,8 +24,10 @@ const IMAGE_EXTENSIONS = new Set([
   "webp",
   "gif",
   "bmp",
+  "avif",
   "heic",
   "heif",
+  "jfif",
 ]);
 
 const TEXT_EXTENSIONS = new Set([
@@ -57,7 +60,7 @@ const TEXT_EXTENSIONS = new Set([
 ]);
 
 function getExtension(name: string): string {
-  const parts = name.toLowerCase().split(".");
+  const parts = name.toLowerCase().trim().split(".");
   return parts.length > 1 ? parts[parts.length - 1] : "";
 }
 
@@ -77,7 +80,7 @@ function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result === "string") {
+      if (typeof reader.result === "string" && reader.result.length > 0) {
         resolve(reader.result);
       } else {
         reject(new Error("Failed to read file as data URL"));
@@ -88,9 +91,53 @@ function readAsDataUrl(file: File): Promise<string> {
   });
 }
 
+function readAsTextSafe(file: File): Promise<string> {
+  if (typeof file.text === "function") {
+    return file.text();
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve(typeof reader.result === "string" ? reader.result : "");
+    };
+    reader.onerror = () => reject(reader.error || new Error("Text read error"));
+    reader.readAsText(file);
+  });
+}
+
 function extractBase64FromDataUrl(dataUrl: string): string {
   const commaIdx = dataUrl.indexOf(",");
   return commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
+}
+
+function loadHtmlImageFromSrc(
+  src: string,
+  timeoutMs = 15000
+): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const el = new window.Image();
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error("Image load timeout"));
+      }
+    }, timeoutMs);
+
+    el.onload = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(el);
+    };
+    el.onerror = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      reject(new Error("Image decode failed"));
+    };
+    el.src = src;
+  });
 }
 
 async function optimizeImageForChat(file: File): Promise<{
@@ -98,73 +145,138 @@ async function optimizeImageForChat(file: File): Promise<{
   base64Data: string;
   previewUrl: string;
 }> {
-  const rawDataUrl = await readAsDataUrl(file);
-  const rawMime = file.type && file.type.startsWith("image/") ? file.type : "image/jpeg";
+  const ext = getExtension(file.name || "");
+  const fallbackMime =
+    ext === "png"
+      ? "image/png"
+      : ext === "webp"
+        ? "image/webp"
+        : ext === "gif"
+          ? "image/gif"
+          : ext === "heic"
+            ? "image/heic"
+            : ext === "heif"
+              ? "image/heif"
+              : "image/jpeg";
+  const rawMime =
+    file.type && file.type.startsWith("image/") ? file.type : fallbackMime;
 
-  // Keep small images untouched to preserve crispness (unless HEIC/BMP)
+  // Keep reasonably sized standard images untouched to preserve crispness & respond instantaneously
   const shouldKeepOriginal =
-    file.size <= 900 * 1024 &&
-    (rawMime === "image/png" || rawMime === "image/jpeg" || rawMime === "image/webp");
+    file.size <= 1.2 * 1024 * 1024 &&
+    (rawMime === "image/png" ||
+      rawMime === "image/jpeg" ||
+      rawMime === "image/webp" ||
+      rawMime === "image/gif");
 
   if (shouldKeepOriginal || typeof window === "undefined") {
+    const rawDataUrl = await readAsDataUrl(file);
     return {
       mimeType: rawMime,
       base64Data: extractBase64FromDataUrl(rawDataUrl),
       previewUrl: rawDataUrl,
     };
   }
+
+  // Decode via createImageBitmap first (handles EXIF orientation & avoids multi-MB base64 intermediate)
+  let bitmap: ImageBitmap | null = null;
+  let objectUrl = "";
+  let imgEl: HTMLImageElement | null = null;
 
   try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new window.Image();
-      el.onload = () => resolve(el);
-      el.onerror = () => reject(new Error("Image decode failed"));
-      el.src = rawDataUrl;
-    });
-
-    const maxDim = 1800;
-    let targetW = img.naturalWidth || img.width;
-    let targetH = img.naturalHeight || img.height;
-
-    if (targetW > maxDim || targetH > maxDim) {
-      const scale = Math.min(maxDim / targetW, maxDim / targetH);
-      targetW = Math.max(1, Math.round(targetW * scale));
-      targetH = Math.max(1, Math.round(targetH * scale));
+    if (typeof createImageBitmap === "function") {
+      try {
+        bitmap = await createImageBitmap(file);
+      } catch {
+        bitmap = null;
+      }
     }
 
-    const canvas = document.createElement("canvas");
-    canvas.width = targetW;
-    canvas.height = targetH;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return {
-        mimeType: rawMime,
-        base64Data: extractBase64FromDataUrl(rawDataUrl),
-        previewUrl: rawDataUrl,
-      };
+    if (!bitmap) {
+      try {
+        objectUrl = URL.createObjectURL(file);
+        imgEl = await loadHtmlImageFromSrc(objectUrl);
+      } catch {
+        imgEl = null;
+      }
     }
 
-    ctx.fillStyle = "#FFFFFF";
-    ctx.fillRect(0, 0, targetW, targetH);
-    ctx.drawImage(img, 0, 0, targetW, targetH);
+    const sourceW = bitmap
+      ? bitmap.width
+      : imgEl
+        ? imgEl.naturalWidth || imgEl.width
+        : 0;
+    const sourceH = bitmap
+      ? bitmap.height
+      : imgEl
+        ? imgEl.naturalHeight || imgEl.height
+        : 0;
 
-    const outputMime = rawMime === "image/png" && file.size <= 1.8 * 1024 * 1024
-      ? "image/png"
-      : "image/jpeg";
-    const compressedUrl = canvas.toDataURL(outputMime, 0.86);
+    if (sourceW > 0 && sourceH > 0) {
+      const maxDim = 1800;
+      let targetW = sourceW;
+      let targetH = sourceH;
 
-    return {
-      mimeType: outputMime,
-      base64Data: extractBase64FromDataUrl(compressedUrl),
-      previewUrl: compressedUrl,
-    };
-  } catch {
-    return {
-      mimeType: rawMime,
-      base64Data: extractBase64FromDataUrl(rawDataUrl),
-      previewUrl: rawDataUrl,
-    };
+      if (targetW > maxDim || targetH > maxDim) {
+        const scale = Math.min(maxDim / targetW, maxDim / targetH);
+        targetW = Math.max(1, Math.round(targetW * scale));
+        targetH = Math.max(1, Math.round(targetH * scale));
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext("2d");
+
+      if (ctx) {
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, targetW, targetH);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        if (bitmap) {
+          ctx.drawImage(bitmap, 0, 0, targetW, targetH);
+        } else if (imgEl) {
+          ctx.drawImage(imgEl, 0, 0, targetW, targetH);
+        }
+
+        const outputMime =
+          rawMime === "image/png" && file.size <= 2 * 1024 * 1024
+            ? "image/png"
+            : "image/jpeg";
+        const compressedUrl = canvas.toDataURL(outputMime, 0.86);
+
+        if (
+          compressedUrl.startsWith("data:image/") &&
+          compressedUrl.length > 32
+        ) {
+          return {
+            mimeType: outputMime,
+            base64Data: extractBase64FromDataUrl(compressedUrl),
+            previewUrl: compressedUrl,
+          };
+        }
+      }
+    }
+  } finally {
+    if (bitmap) {
+      try {
+        bitmap.close();
+      } catch {
+        // ignore
+      }
+    }
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+    }
   }
+
+  // Last-resort fallback: send original image bytes directly
+  const rawDataUrl = await readAsDataUrl(file);
+  return {
+    mimeType: rawMime,
+    base64Data: extractBase64FromDataUrl(rawDataUrl),
+    previewUrl: rawDataUrl,
+  };
 }
 
 export async function processChatFileList(
@@ -177,6 +289,15 @@ export async function processChatFileList(
   const errors: string[] = [];
 
   const remainingSlots = Math.max(0, MAX_CHAT_FILES - existingCount);
+  if (remainingSlots === 0) {
+    errors.push(
+      language === "en"
+        ? `You can attach up to ${MAX_CHAT_FILES} files per message.`
+        : `แนบไฟล์ได้สูงสุด ${MAX_CHAT_FILES} รายการต่อข้อความ`
+    );
+    return { files, errors };
+  }
+
   if (inputFiles.length > remainingSlots) {
     errors.push(
       language === "en"
@@ -187,79 +308,130 @@ export async function processChatFileList(
 
   const sliceToProcess = inputFiles.slice(0, remainingSlots);
 
-  for (const file of sliceToProcess) {
-    const ext = getExtension(file.name);
-    const isImage = file.type.startsWith("image/") || IMAGE_EXTENSIONS.has(ext);
-    const isPdf = file.type === "application/pdf" || ext === "pdf";
-    const isText =
-      file.type.startsWith("text/") ||
-      file.type === "application/json" ||
-      file.type === "application/xml" ||
-      TEXT_EXTENSIONS.has(ext);
+  const results = await Promise.all(
+    sliceToProcess.map(
+      async (
+        file
+      ): Promise<
+        | { ok: true; file: ChatUploadedFile }
+        | { ok: false; error: string }
+      > => {
+        const fileName = file.name || "attachment";
+        const ext = getExtension(fileName);
+        const mime = (file.type || "").toLowerCase().trim();
+        const isImage = mime.startsWith("image/") || IMAGE_EXTENSIONS.has(ext);
+        const isPdf = mime === "application/pdf" || ext === "pdf";
+        const isText =
+          mime.startsWith("text/") ||
+          mime === "application/json" ||
+          mime === "application/xml" ||
+          TEXT_EXTENSIONS.has(ext);
 
-    if (!isImage && !isPdf && !isText) {
-      errors.push(
-        language === "en"
-          ? `"${file.name}" is not supported yet. Please upload images, PDFs, or text files (.txt, .md, .csv, code).`
-          : `ยังไม่รองรับไฟล์ "${file.name}" กรุณาอัปโหลดรูปภาพ, PDF หรือไฟล์ข้อความ (.txt, .md, .csv, โค้ด)`
-      );
-      continue;
-    }
+        if (!isImage && !isPdf && !isText) {
+          return {
+            ok: false,
+            error:
+              language === "en"
+                ? `"${fileName}" is not supported yet. Please upload images, PDFs, or text files (.txt, .md, .csv, code).`
+                : `ยังไม่รองรับไฟล์ "${fileName}" กรุณาอัปโหลดรูปภาพ, PDF หรือไฟล์ข้อความ (.txt, .md, .csv, โค้ด)`,
+          };
+        }
 
-    if (file.size > MAX_RAW_FILE_BYTES) {
-      errors.push(
-        language === "en"
-          ? `"${file.name}" exceeds the 10 MB size limit.`
-          : `ไฟล์ "${file.name}" มีขนาดเกิน 10 MB`
-      );
-      continue;
-    }
+        if (file.size <= 0) {
+          return {
+            ok: false,
+            error:
+              language === "en"
+                ? `"${fileName}" appears to be empty or unreadable.`
+                : `ไฟล์ "${fileName}" ไม่มีข้อมูลหรือไม่สามารถอ่านได้`,
+          };
+        }
 
-    if (isImage) {
-      const processed = await optimizeImageForChat(file);
-      files.push({
-        id: makeFileId(),
-        name: file.name || "image.jpg",
-        mimeType: processed.mimeType,
-        size: file.size,
-        kind: "image",
-        base64Data: processed.base64Data,
-        previewUrl: processed.previewUrl,
-      });
-      continue;
-    }
+        const maxBytes = isImage ? MAX_RAW_IMAGE_BYTES : MAX_RAW_FILE_BYTES;
+        if (file.size > maxBytes) {
+          const limitMb = Math.round(maxBytes / (1024 * 1024));
+          return {
+            ok: false,
+            error:
+              language === "en"
+                ? `"${fileName}" exceeds the ${limitMb} MB size limit.`
+                : `ไฟล์ "${fileName}" มีขนาดเกิน ${limitMb} MB`,
+          };
+        }
 
-    if (isPdf) {
-      if (file.size > MAX_PDF_BYTES) {
-        errors.push(
-          language === "en"
-            ? `PDF "${file.name}" exceeds the 8 MB limit.`
-            : `ไฟล์ PDF "${file.name}" มีขนาดเกิน 8 MB`
-        );
-        continue;
+        try {
+          if (isImage) {
+            const processed = await optimizeImageForChat(file);
+            return {
+              ok: true,
+              file: {
+                id: makeFileId(),
+                name: fileName || "image.jpg",
+                mimeType: processed.mimeType,
+                size: file.size,
+                kind: "image",
+                base64Data: processed.base64Data,
+                previewUrl: processed.previewUrl,
+              },
+            };
+          }
+
+          if (isPdf) {
+            if (file.size > MAX_PDF_BYTES) {
+              return {
+                ok: false,
+                error:
+                  language === "en"
+                    ? `PDF "${fileName}" exceeds the 8 MB limit.`
+                    : `ไฟล์ PDF "${fileName}" มีขนาดเกิน 8 MB`,
+              };
+            }
+            const dataUrl = await readAsDataUrl(file);
+            return {
+              ok: true,
+              file: {
+                id: makeFileId(),
+                name: fileName || "document.pdf",
+                mimeType: "application/pdf",
+                size: file.size,
+                kind: "pdf",
+                base64Data: extractBase64FromDataUrl(dataUrl),
+              },
+            };
+          }
+
+          // Text-based files
+          const rawText = await readAsTextSafe(file);
+          return {
+            ok: true,
+            file: {
+              id: makeFileId(),
+              name: fileName || "notes.txt",
+              mimeType: file.type || "text/plain",
+              size: file.size,
+              kind: "text",
+              textContent: rawText.slice(0, MAX_TEXT_FILE_CHARS),
+            },
+          };
+        } catch {
+          return {
+            ok: false,
+            error:
+              language === "en"
+                ? `Could not read "${fileName}". Please try again.`
+                : `ไม่สามารถอ่านไฟล์ "${fileName}" ได้ กรุณาลองใหม่อีกครั้ง`,
+          };
+        }
       }
-      const dataUrl = await readAsDataUrl(file);
-      files.push({
-        id: makeFileId(),
-        name: file.name || "document.pdf",
-        mimeType: "application/pdf",
-        size: file.size,
-        kind: "pdf",
-        base64Data: extractBase64FromDataUrl(dataUrl),
-      });
-      continue;
-    }
+    )
+  );
 
-    // Text-based files
-    const rawText = await file.text();
-    files.push({
-      id: makeFileId(),
-      name: file.name || "notes.txt",
-      mimeType: file.type || "text/plain",
-      size: file.size,
-      kind: "text",
-      textContent: rawText.slice(0, MAX_TEXT_FILE_CHARS),
-    });
+  for (const res of results) {
+    if (res.ok) {
+      files.push(res.file);
+    } else {
+      errors.push(res.error);
+    }
   }
 
   return { files, errors };

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import {
   Plus,
@@ -12,6 +12,7 @@ import {
   BookOpen,
   ClipboardList,
   FileText,
+  Loader2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useLanguage } from "@/lib/language-context";
@@ -35,6 +36,9 @@ interface ChatComposerProps {
   onRemoveAttachedFile?: (fileId: string) => void;
 }
 
+const CHAT_IMAGE_INPUT_ID = "chat-image-upload-input";
+const CHAT_FILE_INPUT_ID = "chat-file-upload-input";
+
 export const ChatComposer = React.memo(function ChatComposer({
   value,
   onChange,
@@ -49,11 +53,18 @@ export const ChatComposer = React.memo(function ChatComposer({
 }: ChatComposerProps) {
   const { language } = useLanguage();
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  const [isProcessingFiles, setIsProcessingFiles] = useState(false);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachedFilesCountRef = useRef<number>(attachedFiles.length);
+
+  useEffect(() => {
+    attachedFilesCountRef.current = attachedFiles.length;
+  }, [attachedFiles.length]);
 
   const hasContentToSend =
     value.trim().length > 0 ||
@@ -109,80 +120,125 @@ export const ChatComposer = React.memo(function ChatComposer({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!isStreaming && onSubmit && hasContentToSend) {
+      if (!isStreaming && !isProcessingFiles && onSubmit && hasContentToSend) {
         onSubmit();
         resetWindowScrollIfNeeded();
       }
     }
   };
 
-  const attachmentOptions = [
-    {
-      id: "study-history",
-      label: language === "en" ? "Study History" : "ประวัติการเรียน",
-      icon: History,
-    },
-    {
-      id: "image",
-      label: language === "en" ? "Photos" : "รูปภาพ",
-      icon: ImageIcon,
-    },
-    {
-      id: "file",
-      label: language === "en" ? "Files" : "ไฟล์",
-      icon: FileUp,
-    },
-  ];
+  const handleIncomingFiles = useCallback(
+    async (pickedFiles: File[]) => {
+      if (pickedFiles.length === 0) return;
 
-  const handleFileSelection = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files;
-    if (!selected || selected.length === 0) return;
-
-    const { files, errors } = await processChatFileList(
-      selected,
-      language,
-      attachedFiles.length
-    );
-
-    e.target.value = "";
-
-    if (errors.length > 0) {
-      setFileError(errors[0]);
-    } else {
       setFileError(null);
-    }
+      setIsProcessingFiles(true);
+      setIsAddMenuOpen(false);
 
-    if (files.length > 0) {
-      onAddFiles?.(files);
+      try {
+        const { files, errors } = await processChatFileList(
+          pickedFiles,
+          language,
+          attachedFilesCountRef.current
+        );
+
+        if (errors.length > 0) {
+          setFileError(errors[0]);
+        }
+
+        if (files.length > 0) {
+          onAddFiles?.(files);
+        }
+      } catch {
+        setFileError(
+          language === "en"
+            ? "Could not attach the selected file(s). Please try again."
+            : "ไม่สามารถแนบไฟล์ที่เลือกได้ กรุณาลองใหม่อีกครั้ง"
+        );
+      } finally {
+        setIsProcessingFiles(false);
+      }
+    },
+    [language, onAddFiles]
+  );
+
+  const handleFileSelection = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files;
+    // Copy File objects synchronously BEFORE clearing input value so repeated picks of the same file work reliably
+    const pickedFiles = selected ? Array.from(selected) : [];
+    e.target.value = "";
+    if (pickedFiles.length === 0) return;
+    void handleIncomingFiles(pickedFiles);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items || items.length === 0) return;
+
+    const pastedFiles: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.kind === "file") {
+        const file = item.getAsFile();
+        if (file) pastedFiles.push(file);
+      }
+    }
+    if (pastedFiles.length > 0) {
+      e.preventDefault();
+      void handleIncomingFiles(pastedFiles);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      void handleIncomingFiles(Array.from(e.dataTransfer.files));
     }
   };
 
   return (
     <div
       ref={containerRef}
+      onDragOver={(e) => {
+        if (e.dataTransfer?.types?.includes("Files")) {
+          e.preventDefault();
+          setIsDraggingOver(true);
+        }
+      }}
+      onDragLeave={(e) => {
+        if (
+          containerRef.current &&
+          !containerRef.current.contains(e.relatedTarget as Node)
+        ) {
+          setIsDraggingOver(false);
+        }
+      }}
+      onDrop={handleDrop}
       className="w-full max-w-3xl mx-auto px-4 pb-5 sm:pb-6 pt-2 relative"
     >
-      {/* Persistent hidden file inputs so mobile browsers always fire onChange even after closing menu */}
+      {/* Persistent visually-hidden (sr-only) file inputs outside AnimatePresence so mobile/PWA browsers always trigger onChange */}
       <input
         ref={imageInputRef}
+        id={CHAT_IMAGE_INPUT_ID}
         type="file"
         accept="image/*"
         multiple
         onChange={handleFileSelection}
-        className="hidden"
-        aria-hidden="true"
+        className="sr-only"
         tabIndex={-1}
       />
       <input
         ref={fileInputRef}
+        id={CHAT_FILE_INPUT_ID}
         type="file"
-        accept=".pdf,.txt,.md,.markdown,.csv,.tsv,.json,.xml,.html,.htm,.py,.js,.ts,.tsx,.jsx,.java,.c,.cpp,.h,.cs,.go,.rs,.sql,.yaml,.yml,.log,.tex,application/pdf,text/*"
         multiple
         onChange={handleFileSelection}
-        className="hidden"
-        aria-hidden="true"
+        className="sr-only"
         tabIndex={-1}
       />
+
       {/* Popup Attachment Menu above the Chat Input */}
       <AnimatePresence>
         {isAddMenuOpen && (
@@ -219,43 +275,75 @@ export const ChatComposer = React.memo(function ChatComposer({
               <div className="w-9 h-9" aria-hidden="true" />
             </div>
 
-            {/* 3 Option Cards */}
+            {/* 3 Option Cards: Native <label htmlFor> for Photos & Files so mobile/PWA pickers open on first tap */}
             <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
-              {attachmentOptions.map((option) => {
-                const Icon = option.icon;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    id={`chat-add-option-${option.id}`}
-                    onClick={() => {
-                      setFileError(null);
-                      if (option.id === "study-history") {
-                        setIsAddMenuOpen(false);
-                        onOpenStudyHistory?.();
-                      } else if (option.id === "image") {
-                        imageInputRef.current?.click();
-                        setIsAddMenuOpen(false);
-                      } else if (option.id === "file") {
-                        fileInputRef.current?.click();
-                        setIsAddMenuOpen(false);
-                      }
-                    }}
-                    className="flex flex-col items-center justify-center py-4 sm:py-5 px-2 rounded-2xl bg-[#FAF9F5] hover:bg-[#F2F0EA] border border-[#ECEAE3] transition-colors cursor-pointer group"
-                  >
-                    <div className="w-12 h-12 rounded-full bg-[#E9E7E0] group-hover:bg-[#E1DFD7] text-[#1F1E1D] flex items-center justify-center mb-2.5 transition-colors">
-                      <Icon className="w-5 h-5" />
-                    </div>
-                    <span className="text-sm font-medium text-[#1F1E1D] whitespace-nowrap">
-                      {option.label}
-                    </span>
-                  </button>
-                );
-              })}
+              <button
+                type="button"
+                id="chat-add-option-study-history"
+                onClick={() => {
+                  setFileError(null);
+                  setIsAddMenuOpen(false);
+                  onOpenStudyHistory?.();
+                }}
+                className="flex flex-col items-center justify-center py-4 sm:py-5 px-2 rounded-2xl bg-[#FAF9F5] hover:bg-[#F2F0EA] border border-[#ECEAE3] transition-colors cursor-pointer group"
+              >
+                <div className="w-12 h-12 rounded-full bg-[#E9E7E0] group-hover:bg-[#E1DFD7] text-[#1F1E1D] flex items-center justify-center mb-2.5 transition-colors">
+                  <History className="w-5 h-5" />
+                </div>
+                <span className="text-sm font-medium text-[#1F1E1D] whitespace-nowrap">
+                  {language === "en" ? "Study History" : "ประวัติการเรียน"}
+                </span>
+              </button>
+
+              <label
+                htmlFor={CHAT_IMAGE_INPUT_ID}
+                id="chat-add-option-image"
+                onClick={() => {
+                  setFileError(null);
+                  window.setTimeout(() => setIsAddMenuOpen(false), 250);
+                }}
+                className="flex flex-col items-center justify-center py-4 sm:py-5 px-2 rounded-2xl bg-[#FAF9F5] hover:bg-[#F2F0EA] border border-[#ECEAE3] transition-colors cursor-pointer group"
+              >
+                <div className="w-12 h-12 rounded-full bg-[#E9E7E0] group-hover:bg-[#E1DFD7] text-[#1F1E1D] flex items-center justify-center mb-2.5 transition-colors">
+                  <ImageIcon className="w-5 h-5" />
+                </div>
+                <span className="text-sm font-medium text-[#1F1E1D] whitespace-nowrap">
+                  {language === "en" ? "Photos" : "รูปภาพ"}
+                </span>
+              </label>
+
+              <label
+                htmlFor={CHAT_FILE_INPUT_ID}
+                id="chat-add-option-file"
+                onClick={() => {
+                  setFileError(null);
+                  window.setTimeout(() => setIsAddMenuOpen(false), 250);
+                }}
+                className="flex flex-col items-center justify-center py-4 sm:py-5 px-2 rounded-2xl bg-[#FAF9F5] hover:bg-[#F2F0EA] border border-[#ECEAE3] transition-colors cursor-pointer group"
+              >
+                <div className="w-12 h-12 rounded-full bg-[#E9E7E0] group-hover:bg-[#E1DFD7] text-[#1F1E1D] flex items-center justify-center mb-2.5 transition-colors">
+                  <FileUp className="w-5 h-5" />
+                </div>
+                <span className="text-sm font-medium text-[#1F1E1D] whitespace-nowrap">
+                  {language === "en" ? "Files" : "ไฟล์"}
+                </span>
+              </label>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* File processing indicator */}
+      {isProcessingFiles && (
+        <div className="mb-2 inline-flex items-center gap-2 rounded-2xl bg-white border border-[#E5E3DC] px-3.5 py-2 text-xs font-medium text-[#1F1E1D] shadow-[0_1px_6px_rgba(31,30,29,0.04)]">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#1F1E1D]" />
+          <span>
+            {language === "en"
+              ? "Preparing file(s)..."
+              : "กำลังเตรียมไฟล์ที่เลือก..."}
+          </span>
+        </div>
+      )}
 
       {/* File validation error banner if unsupported or oversized */}
       {fileError && (
@@ -384,12 +472,16 @@ export const ChatComposer = React.memo(function ChatComposer({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (!isStreaming && onSubmit && hasContentToSend) {
+          if (!isStreaming && !isProcessingFiles && onSubmit && hasContentToSend) {
             onSubmit();
             resetWindowScrollIfNeeded();
           }
         }}
-        className="bg-white border border-[#E5E3DC] rounded-[28px] shadow-[0_2px_14px_rgba(31,30,29,0.05)] px-2.5 py-2 flex items-end gap-2 focus-within:border-[#CFCBC2] transition-colors"
+        className={`bg-white border rounded-[28px] shadow-[0_2px_14px_rgba(31,30,29,0.05)] px-2.5 py-2 flex items-end gap-2 transition-colors ${
+          isDraggingOver
+            ? "border-[#1F1E1D] bg-[#FAF9F5]"
+            : "border-[#E5E3DC] focus-within:border-[#CFCBC2]"
+        }`}
       >
         {/* Left "+" Button */}
         <button
@@ -418,6 +510,7 @@ export const ChatComposer = React.memo(function ChatComposer({
           rows={1}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onPaste={handlePaste}
           onBlur={resetWindowScrollIfNeeded}
           onKeyDown={handleKeyDown}
           placeholder={
@@ -433,10 +526,10 @@ export const ChatComposer = React.memo(function ChatComposer({
           <button
             type="submit"
             id="chat-send-btn"
-            disabled={isStreaming || !hasContentToSend}
+            disabled={isStreaming || isProcessingFiles || !hasContentToSend}
             aria-label={language === "en" ? "Send message" : "ส่งข้อความ"}
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
-              isStreaming || !hasContentToSend
+              isStreaming || isProcessingFiles || !hasContentToSend
                 ? "bg-[#1F1E1D]/35 text-white cursor-not-allowed"
                 : "bg-[#1F1E1D] hover:bg-[#33322F] text-white cursor-pointer"
             }`}
